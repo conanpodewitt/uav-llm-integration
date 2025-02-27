@@ -41,7 +41,6 @@ RUN apt-get update && apt-get install -y \
     ros-jazzy-robot-state-publisher \
     ros-jazzy-rviz2 \
     ros-jazzy-sick-scan-xd \
-    ros-jazzy-depthai-ros \
     && rm -rf /var/lib/apt/lists/*
 
 # Install pip and additional Python packages for LLM integration and evdev
