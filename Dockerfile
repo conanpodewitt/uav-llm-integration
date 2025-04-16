@@ -50,10 +50,7 @@ RUN apt-get update && apt-get install -y \
 ########################################
 # Install Additional Packages
 ########################################
-RUN pip3 install --break-system-packages evdev numpy opencv-python requests torch transformers
-
-# Set shared cache location for Hugging Face models
-ENV HF_HOME=/home/pioneer-container/.cache/huggingface
+RUN pip3 install --break-system-packages evdev numpy opencv-python requests
 
 ########################################
 # Install and Build AriaCoda
@@ -93,15 +90,10 @@ RUN echo 'echo "Usage: ros2 launch master_launch [sim.launch.py|actual.launch.py
 USER pioneer-container
 WORKDIR /home/pioneer-container
 
-# Preload the BLIP model so it caches at runtime
-RUN python3 -c "from transformers import BlipProcessor, BlipForConditionalGeneration; \
-    BlipProcessor.from_pretrained('Salesforce/blip-image-captioning-base'); \
-    BlipForConditionalGeneration.from_pretrained('Salesforce/blip-image-captioning-base')"
-
 # Create ROS Workspace and copy in project files
 RUN mkdir -p ~/uav-llm-integration/src
 COPY --chown=pioneer-container:pioneer-container src/ /home/pioneer-container/uav-llm-integration/src/
-COPY --chown=pioneer-container:pioneer-container setup.txt /home/pioneer-container/uav-llm-integration/
+COPY --chown=pioneer-container:pioneer-container conf/setup.txt /home/pioneer-container/uav-llm-integration/
 
 # Build the ROS workspace
 RUN /bin/bash -c "source /opt/ros/jazzy/setup.bash && cd ~/uav-llm-integration && colcon build"
@@ -123,6 +115,7 @@ ARG MAX_REVERSE_SPEED
 ARG MAX_TURN_LEFT_SPEED
 ARG MAX_TURN_RIGHT_SPEED
 ARG AREA_THRESHOLD
+ARG PUBLISH_INTERVAL
 ARG LLM_URL
 ARG LLM_MODEL
 ARG LLM_TEMPERATURE
@@ -134,6 +127,7 @@ ENV SAFETY_STOP_DISTANCE=${SAFETY_STOP_DISTANCE} \
     MAX_TURN_LEFT_SPEED=${MAX_TURN_LEFT_SPEED} \
     MAX_TURN_RIGHT_SPEED=${MAX_TURN_RIGHT_SPEED} \
     AREA_THRESHOLD=${AREA_THRESHOLD} \
+    PUBLISH_INTERVAL=${PUBLISH_INTERVAL} \
     LLM_URL=${LLM_URL} \
     LLM_MODEL=${LLM_MODEL} \
     LLM_TEMPERATURE=${LLM_TEMPERATURE} \

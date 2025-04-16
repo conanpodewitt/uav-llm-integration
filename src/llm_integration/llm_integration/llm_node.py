@@ -80,7 +80,7 @@ class LLMNode(Node):
             self.latest_caption = caption
             self.caption_updated = True
             # Log the update, but do not force an API call
-            self.get_logger().info('Caption updated')
+            # self.get_logger().info('Caption updated')
 
     def timer_callback(self):
         '''
