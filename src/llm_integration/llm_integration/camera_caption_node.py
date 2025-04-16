@@ -106,26 +106,31 @@ class CameraCaptionNode(Node):
 
     def timer_callback(self):
         '''
-        Timer callback to publish the current caption
+        Timer callback to publish the current caption and manage memory
         '''
         # Build current description
         if self.latest_positions:
             pos_desc = ', '.join([f"{d} at the {p}" for d,p in self.latest_positions.items()])
         else:
             pos_desc = 'nothing visible'
-        # Always add to memory (even nothing visible)
+        # Always add previous description to memory if it exists and differs from last memory entry
         if self.current_pos_desc:
-            self.memory.append((self.current_pos_desc, time.time()))
+            if not self.memory or self.memory[-1][0] != self.current_pos_desc:
+                self.memory.append((self.current_pos_desc, time.time()))
+        # Update current description
         self.current_pos_desc = pos_desc
         # Build history (exclude center, age>1s)
         now = time.time()
         history = []
         for desc, ts in reversed(self.memory):
-            if ' at the center' in desc: continue
+            if ' at the center' in desc:
+                continue
             delta = int(now - ts)
-            if delta > 1: history.append(f"{desc} last seen {delta}s ago")
+            if delta > 1:
+                history.append(f"{desc} last seen {delta}s ago")
         hist_str = '; '.join(history)
         full_msg = f"{pos_desc}. History: {hist_str}" if hist_str else pos_desc
+        # Truncate to 1024 chars
         full_msg = full_msg[:1024]
         self.get_logger().info(f'Caption: {full_msg}')
         self.publisher_.publish(String(data=full_msg))
