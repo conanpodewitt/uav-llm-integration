@@ -18,7 +18,7 @@ class LLMNode(Node):
         self.llm_url = os.environ.get('LLM_URL')
         self.model = os.environ.get('LLM_MODEL')
         self.llm_temperture = float(os.environ.get('LLM_TEMPERATURE'))
-        self.api_interval = float(os.environ.get('LLM_API_INTERVAL'))
+        self.api_interval = float(os.environ.get('SYSTEM_INTERVAL'))
         self.llm_run = float(os.environ.get('LLM_RUN'))
         # Load the prompt from a text file in the project root.
         self.prompt_template = self.load_prompt_from_file('uav-llm-integration/setup.txt')

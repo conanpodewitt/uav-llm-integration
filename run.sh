@@ -69,11 +69,10 @@ docker build \
     --build-arg MAX_TURN_LEFT_SPEED=${MAX_TURN_LEFT_SPEED} \
     --build-arg MAX_TURN_RIGHT_SPEED=${MAX_TURN_RIGHT_SPEED} \
     --build-arg AREA_THRESHOLD=${AREA_THRESHOLD} \
-    --build-arg PUBLISH_INTERVAL=${PUBLISH_INTERVAL} \
     --build-arg LLM_URL=${LLM_URL} \
     --build-arg LLM_MODEL=${LLM_MODEL} \
     --build-arg LLM_TEMPERATURE=${LLM_TEMPERATURE} \
-    --build-arg LLM_API_INTERVAL=${LLM_API_INTERVAL} \
+    --build-arg SYSTEM_INTERVAL=${SYSTEM_INTERVAL} \
     --build-arg LLM_RUN=${LLM_RUN} \
     -t $IMAGE_NAME .
 

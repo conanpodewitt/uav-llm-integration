@@ -23,7 +23,7 @@ class CameraCaptionNode(Node):
         # Latest detection
         self.latest_positions = {}
         # Timer to publish every second
-        self.caption_timer = self.create_timer(float(os.getenv('PUBLISH_INTERVAL')), self.timer_callback)
+        self.caption_timer = self.create_timer(float(os.getenv('SYSTEM_INTERVAL')), self.timer_callback)
 
     def detect_objects(self, image):
         """
