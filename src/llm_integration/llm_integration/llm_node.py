@@ -4,7 +4,7 @@ import re
 import collections
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import String, Int32
 from geometry_msgs.msg import Twist
 import requests
 import numpy as np
@@ -12,8 +12,11 @@ import numpy as np
 class LLMNode(Node):
     def __init__(self):
         super().__init__('llm_node')
-        # Publishers and subscriptions
+        # Publishers
         self.cmd_pub = self.create_publisher(Twist, '/llm_cmd', 10)
+        self.plan_pub = self.create_publisher(String, '/plan', 10)
+        self.idx_pub = self.create_publisher(Int32, '/plan_index', 10)
+        # Subscriptions
         self.text_sub = self.create_subscription(String, '/text_in', self.text_callback, 10)
         self.caption_sub = self.create_subscription(String, '/camera_caption', self.caption_callback, 10)
         # Internal state
@@ -22,32 +25,29 @@ class LLMNode(Node):
         self.plan = []
         self.plan_index = 0
         self.paused = False
-        # History of past plans (keep last 3)
         self.plan_history = collections.deque(maxlen=3)
         # Load drive parameters
-        self.forward_speed = float(os.getenv('MAX_FORWARD_SPEED'))
-        self.backward_speed = float(os.getenv('MAX_REVERSE_SPEED'))
-        self.turn_left_speed = float(os.getenv('MAX_TURN_LEFT_SPEED'))
-        self.turn_right_speed = float(os.getenv('MAX_TURN_RIGHT_SPEED'))
-        # Define action primitives
+        self.forward_speed = float(os.getenv('MAX_FORWARD_SPEED', '0.5'))
+        self.backward_speed = float(os.getenv('MAX_REVERSE_SPEED', '-0.5'))
+        self.turn_left_speed = float(os.getenv('MAX_TURN_LEFT_SPEED', '0.25'))
+        self.turn_right_speed = float(os.getenv('MAX_TURN_RIGHT_SPEED', '-0.25'))
+        # Action primitives
         self.action_params = {
             'forward':   {'linear': self.forward_speed,  'angular': 0.0,                  'distance': 0.5},
             'backward':  {'linear': self.backward_speed, 'angular': 0.0,                  'distance': 0.5},
             'turn_left': {'linear': 0.0,                 'angular': self.turn_left_speed,  'angle': np.pi/4},
             'turn_right':{'linear': 0.0,                 'angular': self.turn_right_speed, 'angle': np.pi/4},
         }
-        # Load LLM parameters
+        # LLM settings
         self.api_key = os.getenv('LLM_API_KEY')
         self.llm_url = os.getenv('LLM_URL')
         self.model = os.getenv('LLM_MODEL')
         self.temperature = float(os.getenv('LLM_TEMPERATURE', '0.7'))
         self.system_interval = float(os.getenv('SYSTEM_INTERVAL', '2.5'))
-        # Load system prompt
-        self.system_prompt = self.load_system_prompt('uav-llm-integration/setup.txt')
+        self.system_prompt = self.load_system_prompt('setup.txt')
         # Timers
         self.plan_timer = self.create_timer(self.system_interval, self.replan_callback)
         self.exec_timer = None
-        # HTTP session
         self.session = requests.Session()
 
     def load_system_prompt(self, filename):
@@ -63,172 +63,152 @@ class LLMNode(Node):
 
     def text_callback(self, msg: String):
         '''
-        Handle new user command and emergency stop
+        Handle new user command or emergency stop
         '''
         text = msg.data.strip()
-        # Emergency stop command
         if text == 'LLM_STOP':
-            self.get_logger().warn('Emergency stop received: pausing LLM')
+            self.get_logger().warn('Emergency stop: pausing LLM')
             self.paused = True
-            # cancel timers
             if self.exec_timer: self.exec_timer.cancel()
             if self.plan_timer: self.plan_timer.cancel()
-            # publish immediate stop
             self.cmd_pub.publish(Twist())
             return
-        # If paused, resume on any other command
         if self.paused:
-            self.get_logger().info('Resuming LLM after emergency stop')
+            self.get_logger().info('Resuming after stop')
             self.paused = False
-            # restart plan timer
             self.plan_timer = self.create_timer(self.system_interval, self.replan_callback)
-        # Normal command handling
         self.latest_text = text
-        self.get_logger().info(f'Received command: "{self.latest_text}"')
+        self.get_logger().info(f"Received command: '{self.latest_text}'")
         self.generate_plan()
 
     def caption_callback(self, msg: String):
         '''
-        Update latest camera caption (ignored when paused)
+        Update camera caption if not paused
         '''
         if not self.paused:
             self.latest_caption = msg.data.strip()
 
     def generate_plan(self):
         '''
-        Generate initial plan via LLM, including history of past plans
-        '''
-        if self.paused:
-            return
-        if not self.latest_text:
-            self.get_logger().warn('No user command to plan')
+        Generate and publish initial plan
+        '''        
+        if self.paused or not self.latest_text:
             return
         actions = list(self.action_params.keys())
-        # Build history context
-        history = list(self.plan_history)
         history_str = ''
-        if history:
-            history_str = f'Previous plans: {history}\n'
+        if self.plan_history:
+            history_str = f"Previous plans: {list(self.plan_history)}\n"
         user_msg = (
             f'{history_str}'
             f'User command: {self.latest_text}\n'
             f'Image caption: {self.latest_caption}\n'
-            f'Respond with EXACTLY one JSON object: {{\"plan\": [list of actions]}} using only actions from {actions}.'
+            f'Respond with EXACTLY one JSON object: {{\"plan\": [list]}} using actions from {actions}.'
         )
         plan = self.call_api_for_plan(user_msg)
         if plan:
-            # Save to history before replacing
             self.plan_history.append(plan.copy())
             self.plan = plan
             self.plan_index = 0
-            self.get_logger().info(f'New plan: {self.plan}')
+            self.publish_plan()
             self.start_execution()
         else:
             self.get_logger().warn('LLM returned empty plan')
 
     def replan_callback(self):
         '''
-        Periodically adjust remaining plan with plan history context
-        '''
+        Adjust and publish updated plan
+        '''        
         if self.paused or not self.plan:
             return
         remaining = self.plan[self.plan_index:]
         actions = list(self.action_params.keys())
-        history = list(self.plan_history)
         history_str = ''
-        if history:
-            history_str = f'Previous plans: {history}\n'
+        if self.plan_history:
+            history_str = f"Previous plans: {list(self.plan_history)}\n"
         user_msg = (
             f'{history_str}'
             f'User command: {self.latest_text}\n'
             f'Image caption: {self.latest_caption}\n'
             f'Remaining plan: {remaining}\n'
-            f'Respond with EXACTLY one JSON object: {{\"plan\": [list of actions]}} adjusting actions from {actions}.'
+            f'Respond with EXACTLY one JSON object: {{\"plan\": [list]}} adjusting actions from {actions}.'
         )
         plan = self.call_api_for_plan(user_msg)
         if plan:
-            # Append the adjusted plan to history
             self.plan_history.append(plan.copy())
             self.plan = self.plan[:self.plan_index] + plan
-            self.get_logger().info(f'Updated plan: {self.plan}')
+            self.publish_plan()
+
+    def publish_plan(self):
+        '''
+        Publish the full plan as JSON
+        '''        
+        msg = String(data=json.dumps({'plan': self.plan}))
+        self.plan_pub.publish(msg)
+        self.publish_index()
+
+    def publish_index(self):
+        '''
+        Publish the current plan index
+        '''        
+        idx_msg = Int32(data=self.plan_index)
+        self.idx_pub.publish(idx_msg)
 
     def call_api_for_plan(self, user_msg) -> list:
         '''
-        Send system+user messages, parse JSON response
+        Call LLM and parse JSON plan
         '''    
-        messages = []
-        if self.system_prompt:
-            messages.append({'role': 'system', 'content': self.system_prompt})
-        messages.append({'role': 'user', 'content': user_msg})
-        body = {
-            'model': self.model,
-            'messages': messages,
-            'temperature': self.temperature
-        }
-        self.get_logger().debug(f'Sending API request with messages: {messages}')
-        headers = {'Authorization': f'Bearer {self.api_key}', 'Content-Type': 'application/json'}
+        messages = [{'role':'system','content':self.system_prompt}] if self.system_prompt else []
+        messages.append({'role':'user','content':user_msg})
+        body = {'model':self.model,'messages':messages,'temperature':self.temperature}
+        headers = {'Authorization':f'Bearer {self.api_key}','Content-Type':'application/json'}
         try:
-            r = self.session.post(self.llm_url, json=body, headers=headers)
+            r = self.session.post(self.llm_url,json=body,headers=headers)
             r.raise_for_status()
-            choice = r.json()['choices'][0]['message']['content']
-            self.get_logger().debug(f'API raw content: {choice}')
-            match = re.search(r"\{.*?\}", choice, re.DOTALL)
+            content = r.json()['choices'][0]['message']['content']
+            match = re.search(r"\{.*?\}",content,re.DOTALL)
             if not match:
-                self.get_logger().error(f'No JSON found in LLM response: {choice}')
+                self.get_logger().error(f'No JSON in response: {content}')
                 return []
             data = json.loads(match.group(0))
-            if 'plan' not in data or not isinstance(data['plan'], list):
-                self.get_logger().error(f'Invalid plan format: {data}')
-                return []
-            return data['plan']
+            return data.get('plan',[]) if isinstance(data.get('plan',[]), list) else []
         except Exception as e:
-            self.get_logger().error(f'Plan API error: {e}')
+            self.get_logger().error(f'API error: {e}')
             return []
 
     def start_execution(self):
         '''
-        Begin executing plan
+        Execute plan primitives sequentially
         '''    
-        if self.paused:
-            return
-        if self.exec_timer:
-            self.exec_timer.cancel()
-        self.exec_timer = self.create_timer(0.1, self.execute_next_action)
+        if self.paused: return
+        if self.exec_timer: self.exec_timer.cancel()
+        self.exec_timer = self.create_timer(0.1,self.execute_next_action)
 
     def execute_next_action(self):
         '''
-        Execute one primitive, schedule stop
+        Publish twist for next action, schedule stop
         '''    
-        if self.paused:
-            return
+        if self.paused: return
         if self.plan_index >= len(self.plan):
-            self.get_logger().info('Plan complete, regenerating...')
             self.generate_plan()
             return
         action = self.plan[self.plan_index]
         params = self.action_params.get(action)
         if not params:
-            self.get_logger().warn(f'Unknown action: {action}')
-            self.plan_index += 1
-            return
-        twist = Twist()
-        twist.linear.x = params['linear']
-        twist.angular.z = params['angular']
+            self.plan_index+=1; return
+        twist = Twist(linear=type(Twist().linear)(x=params['linear']), angular=type(Twist().angular)(z=params['angular']))
         self.cmd_pub.publish(twist)
-        if 'distance' in params:
-            duration = params['distance'] / abs(self.forward_speed)
-        else:
-            duration = params['angle'] / abs(params['angular']) if params.get('angular') else 1.0
+        duration = (params.get('distance',params.get('angle',1.0)) /
+                    (abs(self.forward_speed) if 'distance' in params else abs(params['angular']) or 1.0))
         self.exec_timer.cancel()
-        self.exec_timer = self.create_timer(duration, self.on_action_complete)
+        self.exec_timer = self.create_timer(duration,self.on_action_complete)
 
     def on_action_complete(self):
         '''
-        Stop robot and move to next
+        Stop and advance plan index
         '''    
         self.cmd_pub.publish(Twist())
-        self.plan_index += 1
-        self.get_logger().info(f'Action {self.plan_index} complete')
+        self.plan_index+=1
+        self.publish_index()
         self.start_execution()
 
     def on_shutdown(self): 
