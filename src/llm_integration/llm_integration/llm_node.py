@@ -21,6 +21,7 @@ class LLMNode(Node):
         self.latest_caption = ''
         self.plan = []
         self.plan_index = 0
+        self.paused = False
         # History of past plans (keep last 3)
         self.plan_history = collections.deque(maxlen=3)
         # Load drive parameters
@@ -62,22 +63,43 @@ class LLMNode(Node):
 
     def text_callback(self, msg: String):
         '''
-        Handle new user command
+        Handle new user command and emergency stop
         '''
-        self.latest_text = msg.data.strip()
+        text = msg.data.strip()
+        # Emergency stop command
+        if text == 'LLM_STOP':
+            self.get_logger().warn('Emergency stop received: pausing LLM')
+            self.paused = True
+            # cancel timers
+            if self.exec_timer: self.exec_timer.cancel()
+            if self.plan_timer: self.plan_timer.cancel()
+            # publish immediate stop
+            self.cmd_pub.publish(Twist())
+            return
+        # If paused, resume on any other command
+        if self.paused:
+            self.get_logger().info('Resuming LLM after emergency stop')
+            self.paused = False
+            # restart plan timer
+            self.plan_timer = self.create_timer(self.system_interval, self.replan_callback)
+        # Normal command handling
+        self.latest_text = text
         self.get_logger().info(f'Received command: "{self.latest_text}"')
         self.generate_plan()
 
     def caption_callback(self, msg: String):
         '''
-        Update latest camera caption
+        Update latest camera caption (ignored when paused)
         '''
-        self.latest_caption = msg.data.strip()
+        if not self.paused:
+            self.latest_caption = msg.data.strip()
 
     def generate_plan(self):
         '''
         Generate initial plan via LLM, including history of past plans
         '''
+        if self.paused:
+            return
         if not self.latest_text:
             self.get_logger().warn('No user command to plan')
             return
@@ -108,7 +130,7 @@ class LLMNode(Node):
         '''
         Periodically adjust remaining plan with plan history context
         '''
-        if not self.plan:
+        if self.paused or not self.plan:
             return
         remaining = self.plan[self.plan_index:]
         actions = list(self.action_params.keys())
@@ -167,6 +189,8 @@ class LLMNode(Node):
         '''
         Begin executing plan
         '''    
+        if self.paused:
+            return
         if self.exec_timer:
             self.exec_timer.cancel()
         self.exec_timer = self.create_timer(0.1, self.execute_next_action)
@@ -175,6 +199,8 @@ class LLMNode(Node):
         '''
         Execute one primitive, schedule stop
         '''    
+        if self.paused:
+            return
         if self.plan_index >= len(self.plan):
             self.get_logger().info('Plan complete, regenerating...')
             self.generate_plan()
