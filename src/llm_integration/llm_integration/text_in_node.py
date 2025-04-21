@@ -36,7 +36,7 @@ class TextInputGUI(Node):
         msg = String()
         msg.data = command
         self.publisher_.publish(msg)
-        self.get_logger().info(f'Published command: {command}')
+        # self.get_logger().info(f'Published command: {command}')
         self.entry.delete(0, tk.END)
 
     def stop_llm(self):

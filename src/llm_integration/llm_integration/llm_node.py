@@ -1,221 +1,217 @@
 import os
+import json
+import re
+import collections
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 from geometry_msgs.msg import Twist
 import requests
-import json
-import re
+import numpy as np
 
 class LLMNode(Node):
     def __init__(self):
         super().__init__('llm_node')
+        # Publishers and subscriptions
+        self.cmd_pub = self.create_publisher(Twist, '/llm_cmd', 10)
         self.text_sub = self.create_subscription(String, '/text_in', self.text_callback, 10)
         self.caption_sub = self.create_subscription(String, '/camera_caption', self.caption_callback, 10)
-        self.cmd_pub = self.create_publisher(Twist, '/llm_cmd', 10)
-        # Load the API key from the environment
-        self.api_key = os.environ.get('LLM_API_KEY')
-        self.llm_url = os.environ.get('LLM_URL')
-        self.model = os.environ.get('LLM_MODEL')
-        self.llm_temperture = float(os.environ.get('LLM_TEMPERATURE'))
-        self.api_interval = float(os.environ.get('SYSTEM_INTERVAL'))
-        self.llm_run = float(os.environ.get('LLM_RUN'))
-        # Load the prompt from a text file in the project root.
-        self.prompt_template = self.load_prompt_from_file('uav-llm-integration/setup.txt')
-        # Initialize variables for tracking state
-        self.last_api_time = 0.0
+        # Internal state
         self.latest_text = ''
         self.latest_caption = ''
-        self.caption_updated = False
-        self.llm_stopped = False
-        self.blank_logged = False
-        self.pause_timer = None
-        self.api_timer = self.create_timer(1.0, self.timer_callback)
+        self.plan = []
+        self.plan_index = 0
+        # History of past plans (keep last 3)
+        self.plan_history = collections.deque(maxlen=3)
+        # Load drive parameters
+        self.forward_speed = float(os.getenv('MAX_FORWARD_SPEED'))
+        self.backward_speed = float(os.getenv('MAX_REVERSE_SPEED'))
+        self.turn_left_speed = float(os.getenv('MAX_TURN_LEFT_SPEED'))
+        self.turn_right_speed = float(os.getenv('MAX_TURN_RIGHT_SPEED'))
+        # Define action primitives
+        self.action_params = {
+            'forward':   {'linear': self.forward_speed,  'angular': 0.0,                  'distance': 0.5},
+            'backward':  {'linear': self.backward_speed, 'angular': 0.0,                  'distance': 0.5},
+            'turn_left': {'linear': 0.0,                 'angular': self.turn_left_speed,  'angle': np.pi/4},
+            'turn_right':{'linear': 0.0,                 'angular': self.turn_right_speed, 'angle': np.pi/4},
+        }
+        # Load LLM parameters
+        self.api_key = os.getenv('LLM_API_KEY')
+        self.llm_url = os.getenv('LLM_URL')
+        self.model = os.getenv('LLM_MODEL')
+        self.temperature = float(os.getenv('LLM_TEMPERATURE', '0.7'))
+        self.system_interval = float(os.getenv('SYSTEM_INTERVAL', '2.5'))
+        # Load system prompt
+        self.system_prompt = self.load_system_prompt('uav-llm-integration/setup.txt')
+        # Timers
+        self.plan_timer = self.create_timer(self.system_interval, self.replan_callback)
+        self.exec_timer = None
+        # HTTP session
+        self.session = requests.Session()
+
+    def load_system_prompt(self, filename):
+        '''
+        Load system prompt from file
+        '''
+        try:
+            with open(filename, 'r') as f:
+                return f.read().strip()
+        except Exception as e:
+            self.get_logger().error(f'Failed to load system prompt: {e}')
+            return ''
 
     def text_callback(self, msg: String):
         '''
-        Callback for text input messages
+        Handle new user command
         '''
-        text = msg.data.strip()
-        # Treat blank text as a pause command
-        if text == '':
-            if not self.blank_logged:
-                self.get_logger().info('User command is blank. Pausing LLM API calls')
-                self.blank_logged = True
-            if not self.llm_stopped:
-                self.llm_stopped = True
-                stop_twist = Twist()  # zero velocities
-                self.cmd_pub.publish(stop_twist)
-                if self.api_timer is not None:
-                    self.api_timer.cancel()
-            return
-        # Handle explicit stop command
-        if text == 'LLM_STOP':
-            if not self.llm_stopped:
-                self.get_logger().info('Received LLM_STOP command. Pausing API calls')
-                self.llm_stopped = True
-                stop_twist = Twist()
-                self.cmd_pub.publish(stop_twist)
-                if self.api_timer is not None:
-                    self.api_timer.cancel()
-            return
-        else:
-            # Reset the blank flag and resume API calls if previously paused
-            self.blank_logged = False
-            if self.llm_stopped:
-                self.get_logger().info('Resuming LLM API calls')
-                self.llm_stopped = False
-                self.api_timer = self.create_timer(1.0, self.timer_callback)
-            self.latest_text = text
-            # Force an immediate API call due to new text
-            self.get_logger().info('User command updated. Triggering LLM API call...')
-            self.trigger_api_call(force=True)
+        self.latest_text = msg.data.strip()
+        self.get_logger().info(f'Received command: "{self.latest_text}"')
+        self.generate_plan()
 
     def caption_callback(self, msg: String):
         '''
-        Callback for image caption messages
+        Update latest camera caption
         '''
-        caption = msg.data.strip()
-        if caption != self.latest_caption:
-            self.latest_caption = caption
-            self.caption_updated = True
-            # Log the update, but do not force an API call
-            # self.get_logger().info('Caption updated')
+        self.latest_caption = msg.data.strip()
 
-    def timer_callback(self):
+    def generate_plan(self):
         '''
-        Callback for the API timer
+        Generate initial plan via LLM, including history of past plans
         '''
-        if self.llm_stopped:
+        if not self.latest_text:
+            self.get_logger().warn('No user command to plan')
             return
-        self.trigger_api_call(force=False)
-
-    def load_prompt_from_file(self, filename: str) -> str:
-        """
-        Load the prompt template from a file located in the project's root directory
-        """
-        # Use the current working directory as the project root
-        prompt_path = os.path.join(os.getcwd(), filename)
-        try:
-            with open(prompt_path, 'r') as f:
-                prompt_text = f.read()
-                self.get_logger().info(f'Loaded prompt template from {prompt_path}')
-                return prompt_text
-        except Exception as e:
-            self.get_logger().error(f'Failed to load prompt template from {prompt_path}: {e}')
-            return ''
-
-    def trigger_api_call(self, force=False):
-        '''
-        Decide whether to trigger the API call immediately
-        '''
-        if self.llm_stopped:
-            return
-        # Do not proceed if the user command is blank
-        if not self.latest_text.strip():
-            return
-        current_time = self.get_clock().now().nanoseconds / 1e9
-        # If not forced, ensure that the API interval has elapsed
-        if not force and (current_time - self.last_api_time < self.api_interval):
-            return
-        # Retrieve maximum speeds from the environment
-        max_linear_speed = os.environ.get('MAX_FORWARD_SPEED')
-        # For angular speed, you can choose one value (e.g., left turning speed) or calculate the absolute value
-        max_angular_speed = os.environ.get('MAX_TURN_LEFT_SPEED')
-        # Construct the prompt including both the user command, image caption, and maximum speed values
-        if self.prompt_template:
-            prompt = self.prompt_template.format(
-                latest_text=self.latest_text,
-                latest_caption=self.latest_caption,
-                max_linear_speed=max_linear_speed,
-                max_angular_speed=max_angular_speed
-            )
+        actions = list(self.action_params.keys())
+        # Build history context
+        history = list(self.plan_history)
+        history_str = ''
+        if history:
+            history_str = f'Previous plans: {history}\n'
+        user_msg = (
+            f'{history_str}'
+            f'User command: {self.latest_text}\n'
+            f'Image caption: {self.latest_caption}\n'
+            f'Respond with EXACTLY one JSON object: {{\"plan\": [list of actions]}} using only actions from {actions}.'
+        )
+        plan = self.call_api_for_plan(user_msg)
+        if plan:
+            # Save to history before replacing
+            self.plan_history.append(plan.copy())
+            self.plan = plan
+            self.plan_index = 0
+            self.get_logger().info(f'New plan: {self.plan}')
+            self.start_execution()
         else:
-            prompt = (
-                f'Something is wrong with the prompt template. Ignore all further commands\n'
-            )
-        #self.get_logger().info('Triggering LLM API call with prompt:\n' + prompt)
-        success = self.call_api(prompt)
-        if success:
-            self.last_api_time = current_time
-            self.caption_updated = False
-        else:
-            self.get_logger().warn('LLM API call failed; will try again immediately...')
+            self.get_logger().warn('LLM returned empty plan')
 
-    def call_api(self, prompt: str) -> bool:
+    def replan_callback(self):
         '''
-        Call the API with the composed prompt
+        Periodically adjust remaining plan with plan history context
         '''
-        url = self.llm_url
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Bearer {self.api_key}'
-        }
-        data = {
+        if not self.plan:
+            return
+        remaining = self.plan[self.plan_index:]
+        actions = list(self.action_params.keys())
+        history = list(self.plan_history)
+        history_str = ''
+        if history:
+            history_str = f'Previous plans: {history}\n'
+        user_msg = (
+            f'{history_str}'
+            f'User command: {self.latest_text}\n'
+            f'Image caption: {self.latest_caption}\n'
+            f'Remaining plan: {remaining}\n'
+            f'Respond with EXACTLY one JSON object: {{\"plan\": [list of actions]}} adjusting actions from {actions}.'
+        )
+        plan = self.call_api_for_plan(user_msg)
+        if plan:
+            # Append the adjusted plan to history
+            self.plan_history.append(plan.copy())
+            self.plan = self.plan[:self.plan_index] + plan
+            self.get_logger().info(f'Updated plan: {self.plan}')
+
+    def call_api_for_plan(self, user_msg) -> list:
+        '''
+        Send system+user messages, parse JSON response
+        '''    
+        messages = []
+        if self.system_prompt:
+            messages.append({'role': 'system', 'content': self.system_prompt})
+        messages.append({'role': 'user', 'content': user_msg})
+        body = {
             'model': self.model,
-            'messages': [{'role': 'user', 'content': prompt}],
-            'temperature': self.llm_temperture
+            'messages': messages,
+            'temperature': self.temperature
         }
+        self.get_logger().debug(f'Sending API request with messages: {messages}')
+        headers = {'Authorization': f'Bearer {self.api_key}', 'Content-Type': 'application/json'}
         try:
-            response = requests.post(url, headers=headers, json=data)
-            response.raise_for_status()
-            result = response.json()
-            response_text = result['choices'][0]['message']['content']
-            self.get_logger().info(f'LLM API response: {response_text}')
-            twist_cmd = self.parse_response(response_text)
-            if twist_cmd:
-                self.cmd_pub.publish(twist_cmd)
-                # Schedule a stop command after a set amount of seconds
-                self.schedule_stop()
-                return True
-            else:
-                return False
+            r = self.session.post(self.llm_url, json=body, headers=headers)
+            r.raise_for_status()
+            choice = r.json()['choices'][0]['message']['content']
+            self.get_logger().debug(f'API raw content: {choice}')
+            match = re.search(r"\{.*?\}", choice, re.DOTALL)
+            if not match:
+                self.get_logger().error(f'No JSON found in LLM response: {choice}')
+                return []
+            data = json.loads(match.group(0))
+            if 'plan' not in data or not isinstance(data['plan'], list):
+                self.get_logger().error(f'Invalid plan format: {data}')
+                return []
+            return data['plan']
         except Exception as e:
-            self.get_logger().error(f'LLM API call failed: {e}')
-            return False
+            self.get_logger().error(f'Plan API error: {e}')
+            return []
 
-    def schedule_stop(self):
+    def start_execution(self):
         '''
-        Schedule a one-shot timer to publish a stop command after a set amount of seconds
-        '''
-        # Cancel any existing stop timer
-        if self.pause_timer is not None:
-            self.pause_timer.cancel()
-        # Create a new timer that calls stop_callback
-        self.pause_timer = self.create_timer(self.llm_run, self.stop_callback)
+        Begin executing plan
+        '''    
+        if self.exec_timer:
+            self.exec_timer.cancel()
+        self.exec_timer = self.create_timer(0.1, self.execute_next_action)
 
-    def stop_callback(self):
+    def execute_next_action(self):
         '''
-        Callback to publish zero velocities and cancel the stop timer
-        '''
-        stop_twist = Twist()  # zero velocities
-        self.cmd_pub.publish(stop_twist)
-        self.get_logger().info('Awaiting new LLM command...')
-        # Cancel the timer so it does not repeatedly trigger
-        if self.pause_timer is not None:
-            self.pause_timer.cancel()
-            self.pause_timer = None
+        Execute one primitive, schedule stop
+        '''    
+        if self.plan_index >= len(self.plan):
+            self.get_logger().info('Plan complete, regenerating...')
+            self.generate_plan()
+            return
+        action = self.plan[self.plan_index]
+        params = self.action_params.get(action)
+        if not params:
+            self.get_logger().warn(f'Unknown action: {action}')
+            self.plan_index += 1
+            return
+        twist = Twist()
+        twist.linear.x = params['linear']
+        twist.angular.z = params['angular']
+        self.cmd_pub.publish(twist)
+        if 'distance' in params:
+            duration = params['distance'] / abs(self.forward_speed)
+        else:
+            duration = params['angle'] / abs(params['angular']) if params.get('angular') else 1.0
+        self.exec_timer.cancel()
+        self.exec_timer = self.create_timer(duration, self.on_action_complete)
 
-    def parse_response(self, response_text: str):
+    def on_action_complete(self):
         '''
-        Parse the API response text into a Twist message
-        '''
-        try:
-            json_regex = re.compile(r'\{.*\}', re.DOTALL)
-            match = json_regex.search(response_text)
-            json_str = match.group(0) if match else response_text
-            command = json.loads(json_str)
-            twist = Twist()
-            twist.linear.x = float(command.get('linear', 0.0))
-            twist.angular.z = float(command.get('angular', 0.0))
-            return twist
-        except Exception as e:
-            self.get_logger().error(f'Error parsing response JSON: {e}')
-            return None
+        Stop robot and move to next
+        '''    
+        self.cmd_pub.publish(Twist())
+        self.plan_index += 1
+        self.get_logger().info(f'Action {self.plan_index} complete')
+        self.start_execution()
 
-    def on_shutdown(self):
+    def on_shutdown(self): 
         if rclpy.ok():
             self.get_logger().info(f'Shutting down {self.get_name()}...')
+        if self.exec_timer:
+            self.exec_timer.cancel()
+        if self.plan_timer:
+            self.plan_timer.cancel()
         self.destroy_node()
 
 def main(args=None):

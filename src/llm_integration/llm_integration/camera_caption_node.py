@@ -130,9 +130,9 @@ class CameraCaptionNode(Node):
                 history.append(f"{desc} last seen {delta}s ago")
         hist_str = '; '.join(history)
         full_msg = f"{pos_desc}. History: {hist_str}" if hist_str else pos_desc
-        # Truncate to 1024 chars
-        full_msg = full_msg[:1024]
-        self.get_logger().info(f'Caption: {full_msg}')
+        # Truncate to 2048 chars
+        full_msg = full_msg[:2048]
+        # self.get_logger().info(f'Caption: {full_msg}')
         self.publisher_.publish(String(data=full_msg))
 
     def on_shutdown(self):
