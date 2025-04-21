@@ -27,11 +27,17 @@ class UINode(Node):
         # Input frame
         input_frame = tk.Frame(self.root)
         input_frame.pack(padx=10, pady=5)
-        self.entry = tk.Entry(input_frame, width=50)
+        self.entry = tk.Entry(input_frame, width=40)
         self.entry.pack(side=tk.LEFT, padx=(0,5))
+        # placeholder text
+        self.entry.insert(0, 'Enter a command')
+        self.entry.config(fg='grey')
+        self.entry.bind('<FocusIn>', self._clear_placeholder)
+        self.entry.bind('<FocusOut>', self._add_placeholder)
         send_button = tk.Button(
             input_frame,
             text='Send Command',
+            width=15,
             command=self.send_command,
             bg='green',
             fg='white',
@@ -46,6 +52,7 @@ class UINode(Node):
         stop_button = tk.Button(
             ctrl_frame,
             text='LLM Stop',
+            width=40,
             command=self.stop_llm,
             bg='red',
             fg='white',
@@ -53,7 +60,12 @@ class UINode(Node):
             activeforeground='white'
         )
         stop_button.pack(side=tk.LEFT, padx=5)
-        load_button = tk.Button(ctrl_frame, text='Load from File', command=self.load_from_file)
+        load_button = tk.Button(
+            ctrl_frame,
+            text='Load from File',
+            width=15,
+            command=self.load_from_file
+        )
         load_button.pack(side=tk.LEFT, padx=5)
         sep1 = ttk.Separator(self.root, orient='horizontal')
         sep1.pack(fill='x', padx=10, pady=5)
@@ -63,7 +75,7 @@ class UINode(Node):
         sep2 = ttk.Separator(self.root, orient='horizontal')
         sep2.pack(fill='x', padx=10, pady=5)
         tk.Label(plan_frame, text='Current Plan:').pack(anchor=tk.W)
-        self.listbox = tk.Listbox(plan_frame, width=50, height=10)
+        self.listbox = tk.Listbox(plan_frame, width=50, height=5)
         self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar = tk.Scrollbar(plan_frame, orient=tk.VERTICAL, command=self.listbox.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -166,12 +178,6 @@ class UINode(Node):
             except Exception as e:
                 self.get_logger().error(f'Error loading file: {e}')
 
-    def on_shutdown(self):
-        if rclpy.ok():
-            self.get_logger().info(f'Shutting down {self.get_name()}...')
-        self.destroy_node()
-        self.root.quit()
-
     def spin(self):
         '''
         Main loop for the Tkinter UI and ROS node
@@ -182,6 +188,22 @@ class UINode(Node):
                 rclpy.spin_once(self, timeout_sec=0.1)
         except KeyboardInterrupt:
             self.on_shutdown()
+
+    def _clear_placeholder(self, event):
+        if self.entry.get() == 'Enter a command':
+            self.entry.delete(0, tk.END)
+            self.entry.config(fg='black')
+
+    def _add_placeholder(self, event):
+        if not self.entry.get():
+            self.entry.insert(0, 'Enter a command')
+            self.entry.config(fg='grey')
+
+    def on_shutdown(self):
+        if rclpy.ok():
+            self.get_logger().info(f'Shutting down {self.get_name()}...')
+        self.destroy_node()
+        self.root.quit()
 
 def main(args=None):
     rclpy.init(args=args)
