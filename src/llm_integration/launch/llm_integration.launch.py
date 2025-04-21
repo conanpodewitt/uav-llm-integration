@@ -11,11 +11,11 @@ def generate_launch_description():
         output='screen'
     )
 
-    # Node for receiving text input (CLI or GUI) and publishing on /text_in
-    text_in_node = Node(
+    # Node for receiving text input (CLI or GUI) and publishing on /ui
+    ui_node = Node(
         package='llm_integration',
-        executable='text_in_node',
-        name='text_in_node',
+        executable='ui_node',
+        name='ui_node',
         output='screen'
     )
 
@@ -29,6 +29,6 @@ def generate_launch_description():
 
     return LaunchDescription([
         llm_node,
-        text_in_node,
+        ui_node,
         camera_caption_node,
     ])

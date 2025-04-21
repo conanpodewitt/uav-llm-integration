@@ -4,9 +4,9 @@ from std_msgs.msg import String
 import tkinter as tk
 from tkinter import filedialog
 
-class TextInputGUI(Node):
+class UINode(Node):
     def __init__(self):
-        super().__init__('text_in_node')
+        super().__init__('ui_node')
         self.publisher_ = self.create_publisher(String, '/text_in', 10)
         self.root = tk.Tk()
         self.root.title('LLM Command Input')
@@ -79,7 +79,7 @@ class TextInputGUI(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = TextInputGUI()
+    node = UINode()
     try:
         node.spin()
     except KeyboardInterrupt:
