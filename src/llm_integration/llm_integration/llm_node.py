@@ -12,11 +12,9 @@ import numpy as np
 class LLMNode(Node):
     def __init__(self):
         super().__init__('llm_node')
-        # Publishers
         self.cmd_pub = self.create_publisher(Twist, '/llm_cmd', 10)
         self.plan_pub = self.create_publisher(String, '/plan', 10)
         self.idx_pub = self.create_publisher(Int32, '/plan_index', 10)
-        # Subscriptions
         self.text_sub = self.create_subscription(String, '/text_in', self.text_callback, 10)
         self.caption_sub = self.create_subscription(String, '/camera_caption', self.caption_callback, 10)
         # Internal state

@@ -12,11 +12,10 @@ class CameraCaptionNode(Node):
     def __init__(self):
         super().__init__('camera_caption_node')
         self.publisher_ = self.create_publisher(String, '/camera_caption', 10)
+        self.mask_pub_ = self.create_publisher(Image, '/camera_masked', 10)  # new masked-image publisher
         self.subscription = self.create_subscription(Image, '/camera', self.image_callback, 10)
         self.threshold = int(os.getenv('AREA_THRESHOLD'))
         self.bridge = CvBridge()
-        self.window_name = 'Masked View'
-        cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
         self.current_pos_desc = None  # last positional description
         # Memory: list of tuples (positional_description, timestamp)
         self.memory = []
@@ -26,12 +25,12 @@ class CameraCaptionNode(Node):
         self.caption_timer = self.create_timer(float(os.getenv('SYSTEM_INTERVAL')), self.timer_callback)
 
     def detect_objects(self, image):
-        """
+        '''
         Detect colored blobs using HSV thresholding and perform basic shape recognition
         Returns:
           - objects: list of detected objects with label, shape, and bounding box
           - display_masked_image: visualization image
-        """
+        '''
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         objects = []
         display_masked_image = np.ones_like(image) * 255
@@ -101,8 +100,12 @@ class CameraCaptionNode(Node):
             return
         objs, disp = self.detect_objects(img)
         self.latest_positions = self.analyze_positions(objs, img.shape[1])
-        cv2.imshow(self.window_name, disp)
-        cv2.waitKey(1)
+        # publish masked image instead of showing it
+        try:
+            masked_msg = self.bridge.cv2_to_imgmsg(disp, encoding='bgr8')
+            self.mask_pub_.publish(masked_msg)
+        except CvBridgeError as e:
+            self.get_logger().error(f'Failed to convert/publish masked image: {e}')
 
     def timer_callback(self):
         '''
@@ -139,7 +142,6 @@ class CameraCaptionNode(Node):
         if rclpy.ok():
             self.get_logger().info(f'Shutting down {self.get_name()}...')
         self.destroy_node()
-        cv2.destroyAllWindows()
 
 def main(args=None):
     rclpy.init(args=args)
