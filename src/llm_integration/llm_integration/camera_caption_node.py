@@ -130,25 +130,15 @@ class CameraCaptionNode(Node):
             self.get_logger().error(f'Mask pub error: {e}')
 
     def timer_callback(self):
-        '''
-        Publish caption and history; memory already updated per frame
-        '''
-        now = time.time()
-        # Build caption from current_objects
-        descs = [f"{o['label']} at the {o['pos']}" for o in self.current_objects]
-        caption = ', '.join(descs) if descs else 'nothing visible'
-        # Build history excluding center and entries <=1s old
-        history = []
-        for o in self.current_objects:
-            if o['pos'] == 'center':
-                continue
-            dt = int(now - o['timestamp'])
-            if dt > 1:
-                history.append(f"{o['label']} last seen {dt}s ago")
-        hist_str = '; '.join(history)
-        full_msg = f"{caption}. History: {hist_str}" if hist_str else caption
+        """
+        Publish the current memory of detected objects
+        """
+        # Assemble full message including raw memory
+        full_msg = str(self.current_objects)
+        # Publish to /camera_caption
         self.publisher_.publish(String(data=full_msg))
-        # self.get_logger().info(f'Current memory: {self.current_objects}')
+        # Also log to ROS for debugging
+        # self.get_logger().info(f'{self.current_objects}')
 
     def on_shutdown(self):
         if rclpy.ok():
