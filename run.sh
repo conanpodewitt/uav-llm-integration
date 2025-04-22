@@ -79,13 +79,9 @@ docker build \
 ########################################
 # Run the Docker container
 ########################################
-if [ $# -ne 1 ]; then
-    echo "Usage: $0 [0|1]"
-    exit 1
-fi
-
-if [ "$1" -eq 1 ]; then
-    echo "Running Docker container with serial and video support..."
+# Detect serial device to decide on video+serial support
+if [ -e "/dev/ttyUSB0" ]; then
+    echo "Serial device detected. Running Docker container with serial and video support..."
     docker run -it --rm \
         --name $CONTAINER_NAME \
         --env-file $ENV_FILE \
@@ -98,8 +94,8 @@ if [ "$1" -eq 1 ]; then
         --device /dev/video0:/dev/video0 \
         --device /dev/input:/dev/input \
         $IMAGE_NAME
-elif [ "$1" -eq 0 ]; then
-    echo "Running Docker container without serial and video support..."
+else
+    echo "No serial device detected. Running Docker container without serial and video support..."
     docker run -it --rm \
         --name $CONTAINER_NAME \
         --env-file $ENV_FILE \
@@ -110,9 +106,6 @@ elif [ "$1" -eq 0 ]; then
         -v /tmp/.X11-unix:/tmp/.X11-unix \
         --device /dev/input:/dev/input \
         $IMAGE_NAME
-else
-    echo "Invalid argument: use 0 (no video/serial) or 1 (with video/serial). Aborting..."
-    exit 1
 fi
 
 ########################################
