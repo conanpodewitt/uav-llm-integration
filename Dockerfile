@@ -93,7 +93,7 @@ WORKDIR /home/pioneer-container
 # Create ROS Workspace and copy in project files
 RUN mkdir -p ~/uav-llm-integration/src
 COPY --chown=pioneer-container:pioneer-container src/ /home/pioneer-container/uav-llm-integration/src/
-COPY --chown=pioneer-container:pioneer-container conf/setup.txt /home/pioneer-container/uav-llm-integration/
+COPY --chown=pioneer-container:pioneer-container conf/system_prompt.txt /home/pioneer-container/uav-llm-integration/
 
 # Build the ROS workspace
 RUN /bin/bash -c "source /opt/ros/jazzy/setup.bash && cd ~/uav-llm-integration && colcon build"

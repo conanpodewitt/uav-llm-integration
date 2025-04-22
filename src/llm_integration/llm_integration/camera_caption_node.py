@@ -12,131 +12,143 @@ class CameraCaptionNode(Node):
     def __init__(self):
         super().__init__('camera_caption_node')
         self.publisher_ = self.create_publisher(String, '/camera_caption', 10)
-        self.mask_pub_ = self.create_publisher(Image, '/camera_masked', 10)  # new masked-image publisher
+        self.mask_pub_ = self.create_publisher(Image, '/camera_masked', 10)
         self.subscription = self.create_subscription(Image, '/camera', self.image_callback, 10)
-        self.threshold = int(os.getenv('AREA_THRESHOLD'))
+        # Configuration
+        self.area_threshold = int(os.getenv('AREA_THRESHOLD', '500'))       # min blob area
+        self.match_tol = float(os.getenv('AREA_MATCH_TOL', '0.2'))         # relative area tolerance
+        self.max_tracked = int(os.getenv('MAX_TRACKED', '5'))             # max objects to track
+        interval = float(os.getenv('SYSTEM_INTERVAL', '1.0'))             # publish interval
+        # State
         self.bridge = CvBridge()
-        self.current_pos_desc = None  # last positional description
-        # Memory: list of tuples (positional_description, timestamp)
-        self.memory = []
-        # Latest detection
-        self.latest_positions = {}
-        # Timer to publish every second
-        self.caption_timer = self.create_timer(float(os.getenv('SYSTEM_INTERVAL')), self.timer_callback)
+        self.current_objects = []  # list of tracked objects: dicts with label, area, pos, timestamp
+        self.latest_detections = []
+        # Start timer for publishing only
+        self.caption_timer = self.create_timer(interval, self.timer_callback)
 
     def detect_objects(self, image):
         '''
-        Detect colored blobs using HSV thresholding and perform basic shape recognition
-        Returns:
-          - objects: list of detected objects with label, shape, and bounding box
-          - display_masked_image: visualization image
+        Detect colored blobs via HSV thresholding
+        Returns list of dicts: {label, area, bbox}
+        and a visualization image with color overlays
         '''
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        objects = []
-        display_masked_image = np.ones_like(image) * 255
+        detections = []
+        vis = np.ones_like(image) * 255
+
         color_ranges = {
-            'red': [((0, 100, 100), (10, 255, 255)), ((160, 100, 100), (180, 255, 255))],
-            'blue': [((100, 150, 0), (140, 255, 255))],
-            'yellow': [((20, 100, 100), (30, 255, 255))],
-            'purple': [((130, 50, 50), (160, 255, 255))],
+            'red': [((0,100,100),(10,255,255)),((160,100,100),(180,255,255))],
+            'blue': [((100,150,0),(140,255,255))],
+            'yellow': [((20,100,100),(30,255,255))],
+            'purple': [((130,50,50),(160,255,255))],
         }
         color_bgr = {
-            'red': (0, 0, 255),
-            'blue': (255, 0, 0),
-            'yellow': (0, 255, 255),
-            'purple': (128, 0, 128),
+            'red': (0,0,255),
+            'blue': (255,0,0),
+            'yellow': (0,255,255),
+            'purple': (128,0,128),
         }
-        for color, ranges in color_ranges.items():
-            combined_mask = None
-            for lower, upper in ranges:
-                mask = cv2.inRange(hsv, np.array(lower, 'uint8'), np.array(upper, 'uint8'))
-                combined_mask = mask if combined_mask is None else cv2.bitwise_or(combined_mask, mask)
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-            mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, kernel)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-            display_masked_image[mask != 0] = color_bgr[color]
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            valid = [c for c in contours if cv2.contourArea(c) > self.threshold]
-            if valid:
-                merged = np.vstack(valid)
-                x, y, w, h = cv2.boundingRect(merged)
-                peri = cv2.arcLength(merged, True)
-                approx = cv2.approxPolyDP(merged, 0.04 * peri, True)
-                shape = 'unidentified'
-                if len(approx) == 3: shape = 'triangle'
-                elif len(approx) == 4: shape = 'rectangle'
-                elif len(approx) == 5: shape = 'pentagon'
-                elif len(approx) > 5: shape = 'circle'
-                objects.append({'label': color, 'shape': shape, 'bbox': (x, y, w, h)})
-        for obj in objects:
-            x, y, w, h = obj['bbox']
-            cv2.rectangle(display_masked_image, (x, y), (x+w, y+h), (0,0,0), 2)
-            cv2.putText(display_masked_image, f"{obj['label']} {obj['shape']}",
-                        (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), 2)
-        return objects, display_masked_image
+        for label, ranges in color_ranges.items():
+            mask = None
+            for low, high in ranges:
+                m = cv2.inRange(hsv, np.array(low, 'uint8'), np.array(high, 'uint8'))
+                mask = m if mask is None else cv2.bitwise_or(mask, m)
+            # Clean mask
+            kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kern)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kern)
+            # Overlay color
+            vis[mask != 0] = color_bgr[label]
+            # Find contours
+            cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for c in cnts:
+                area = cv2.contourArea(c)
+                if area < self.area_threshold:
+                    continue
+                x, y, w, h = cv2.boundingRect(c)
+                detections.append({'label': label, 'area': area, 'bbox': (x, y, w, h)})
+                cv2.rectangle(vis, (x, y), (x+w, y+h), (0,0,0), 2)
+        return detections, vis
 
-    def analyze_positions(self, objects, image_width):
+    def analyse_positions(self, objects, width):
         '''
-        Analyze the positions of detected objects and classify them as left, center, or right
+        Assign left/center/right based on quarters:
+        - left: x_center < width/4
+        - center: width/4 <= x_center <= 3*width/4
+        - right: x_center > 3*width/4
         '''
-        positions = {}
         for obj in objects:
             x, y, w, h = obj['bbox']
-            center = x + w/2
-            if center < image_width/3: pos='left'
-            elif center > 2*image_width/3: pos='right'
-            else: pos='center'
-            positions[f"{obj['label']} {obj['shape']}"] = pos
-        return positions
+            cx = x + w/2
+            if cx < width/4:
+                pos = 'left'
+            elif cx > 3*width/4:
+                pos = 'right'
+            else:
+                pos = 'center'
+            obj['pos'] = pos
+        return objects
 
     def image_callback(self, msg):
         '''
-        Callback for image messages
+        Process each frame: detect, match to memory, and publish masked image
         '''
         try:
             img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
         except CvBridgeError as e:
             self.get_logger().error(f'CV Bridge error: {e}')
             return
-        objs, disp = self.detect_objects(img)
-        self.latest_positions = self.analyze_positions(objs, img.shape[1])
-        # publish masked image instead of showing it
+        # Detect and position
+        dets, vis = self.detect_objects(img)
+        self.latest_detections = self.analyse_positions(dets, img.shape[1])
+        # Update memory each frame
+        now = time.time()
+        # Match detections to existing
+        for det in self.latest_detections:
+            matched = False
+            for obj in self.current_objects:
+                if det['label'] == obj['label']:
+                    rel = abs(obj['area'] - det['area']) / det['area']
+                    if rel < self.match_tol:
+                        obj['area'] = det['area']
+                        obj['pos'] = det['pos']
+                        obj['timestamp'] = now
+                        matched = True
+                        break
+            if not matched and len(self.current_objects) < self.max_tracked:
+                self.current_objects.append({
+                    'label': det['label'],
+                    'area': det['area'],
+                    'pos': det['pos'],
+                    'timestamp': now
+                })
+        # Publish masked visualisation
         try:
-            masked_msg = self.bridge.cv2_to_imgmsg(disp, encoding='bgr8')
-            self.mask_pub_.publish(masked_msg)
+            mask_msg = self.bridge.cv2_to_imgmsg(vis, encoding='bgr8')
+            self.mask_pub_.publish(mask_msg)
         except CvBridgeError as e:
-            self.get_logger().error(f'Failed to convert/publish masked image: {e}')
+            self.get_logger().error(f'Mask pub error: {e}')
 
     def timer_callback(self):
         '''
-        Timer callback to publish the current caption and manage memory
+        Publish caption and history; memory already updated per frame
         '''
-        # Build current description
-        if self.latest_positions:
-            pos_desc = ', '.join([f"{d} at the {p}" for d,p in self.latest_positions.items()])
-        else:
-            pos_desc = 'nothing visible'
-        # Always add previous description to memory if it exists and differs from last memory entry
-        if self.current_pos_desc:
-            if not self.memory or self.memory[-1][0] != self.current_pos_desc:
-                self.memory.append((self.current_pos_desc, time.time()))
-        # Update current description
-        self.current_pos_desc = pos_desc
-        # Build history (exclude center, age>1s)
         now = time.time()
+        # Build caption from current_objects
+        descs = [f"{o['label']} at the {o['pos']}" for o in self.current_objects]
+        caption = ', '.join(descs) if descs else 'nothing visible'
+        # Build history excluding center and entries <=1s old
         history = []
-        for desc, ts in reversed(self.memory):
-            if ' at the center' in desc:
+        for o in self.current_objects:
+            if o['pos'] == 'center':
                 continue
-            delta = int(now - ts)
-            if delta > 1:
-                history.append(f"{desc} last seen {delta}s ago")
+            dt = int(now - o['timestamp'])
+            if dt > 1:
+                history.append(f"{o['label']} last seen {dt}s ago")
         hist_str = '; '.join(history)
-        full_msg = f"{pos_desc}. History: {hist_str}" if hist_str else pos_desc
-        # Truncate to 2048 chars
-        full_msg = full_msg[:2048]
-        # self.get_logger().info(f'Caption: {full_msg}')
+        full_msg = f"{caption}. History: {hist_str}" if hist_str else caption
         self.publisher_.publish(String(data=full_msg))
+        # self.get_logger().info(f'Current memory: {self.current_objects}')
 
     def on_shutdown(self):
         if rclpy.ok():

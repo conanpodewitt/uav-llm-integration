@@ -42,7 +42,7 @@ class LLMNode(Node):
         self.model = os.getenv('LLM_MODEL')
         self.temperature = float(os.getenv('LLM_TEMPERATURE', '0.7'))
         self.system_interval = float(os.getenv('SYSTEM_INTERVAL', '2.5'))
-        self.system_prompt = self.load_system_prompt('setup.txt')
+        self.system_prompt = self.load_system_prompt('uav-llm-integration/system_prompt.txt')
         # Timers
         self.plan_timer = self.create_timer(self.system_interval, self.replan_callback)
         self.exec_timer = None

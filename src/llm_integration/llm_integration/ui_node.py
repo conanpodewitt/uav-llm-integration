@@ -27,7 +27,10 @@ class UINode(Node):
         # Input frame
         input_frame = tk.Frame(self.root)
         input_frame.pack(padx=10, pady=5)
-        self.entry = tk.Entry(input_frame, width=40)
+        self.entry = tk.Entry(
+            input_frame,
+            width=40
+        )
         self.entry.pack(side=tk.LEFT, padx=(0,5))
         # placeholder text
         self.entry.insert(0, 'Enter a command')
