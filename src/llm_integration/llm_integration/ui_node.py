@@ -82,10 +82,10 @@ class UINode(Node):
         self.listbox.config(yscrollcommand=scrollbar.set)
         # Masked camera display
         cam_frame = tk.Frame(self.root)
-        cam_frame.pack(padx=10, pady=5)
+        cam_frame.pack(padx=10, pady=5, fill=tk.X)
         tk.Label(cam_frame, text='Masked Camera View:').pack(anchor=tk.W)
         self.image_label = tk.Label(cam_frame)
-        self.image_label.pack()
+        self.image_label.pack(fill=tk.X)
         # Shutdown protocol
         self.root.protocol('WM_DELETE_WINDOW', self.on_shutdown)
 
