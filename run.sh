@@ -69,6 +69,8 @@ docker build \
     --build-arg MAX_TURN_LEFT_SPEED=${MAX_TURN_LEFT_SPEED} \
     --build-arg MAX_TURN_RIGHT_SPEED=${MAX_TURN_RIGHT_SPEED} \
     --build-arg AREA_THRESHOLD=${AREA_THRESHOLD} \
+    --build-arg AREA_MATCH_TOL=${AREA_MATCH_TOL} \
+    --build-arg MAX_TRACKED=${MAX_TRACKED} \
     --build-arg LLM_URL=${LLM_URL} \
     --build-arg LLM_MODEL=${LLM_MODEL} \
     --build-arg LLM_TEMPERATURE=${LLM_TEMPERATURE} \
