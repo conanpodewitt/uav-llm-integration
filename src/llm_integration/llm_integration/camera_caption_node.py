@@ -73,9 +73,9 @@ class CameraCaptionNode(Node):
     def analyse_positions(self, objects, width):
         '''
         Assign left/center/right based on quarters:
-        - left: x_center < width/4
+        - left:   x_center < width/4
         - center: width/4 <= x_center <= 3*width/4
-        - right: x_center > 3*width/4
+        - right:  x_center > 3*width/4
         '''
         for obj in objects:
             x, y, w, h = obj['bbox']
@@ -98,31 +98,53 @@ class CameraCaptionNode(Node):
         except CvBridgeError as e:
             self.get_logger().error(f'CV Bridge error: {e}')
             return
-        # Detect and position
+        # Detect & position
         dets, vis = self.detect_objects(img)
         self.latest_detections = self.analyse_positions(dets, img.shape[1])
-        # Update memory each frame
         now = time.time()
-        # Match detections to existing
+        # Match detections to existing memory
         for det in self.latest_detections:
             matched = False
             for obj in self.current_objects:
                 if det['label'] == obj['label']:
-                    rel = abs(obj['area'] - det['area']) / det['area']
+                    rel = abs(obj['area'] - det['area']) / obj['area']
                     if rel < self.match_tol:
+                        # update existing
                         obj['area'] = det['area']
                         obj['pos'] = det['pos']
                         obj['timestamp'] = now
                         matched = True
                         break
-            if not matched and len(self.current_objects) < self.max_tracked:
-                self.current_objects.append({
-                    'label': det['label'],
-                    'area': det['area'],
-                    'pos': det['pos'],
-                    'timestamp': now
-                })
-        # Publish masked visualisation
+            if not matched:
+                # new object
+                if len(self.current_objects) < self.max_tracked:
+                    # room to add
+                    self.current_objects.append({
+                        'label': det['label'],
+                        'area': det['area'],
+                        'pos': det['pos'],
+                        'timestamp': now
+                    })
+                else:
+                    # memory full → replace oldest duplicate‐color first
+                    same = [o for o in self.current_objects if o['label'] == det['label']]
+                    if same:
+                        # find oldest of that color
+                        oldest = min(same, key=lambda o: o['timestamp'])
+                        oldest['area'] = det['area']
+                        oldest['pos'] = det['pos']
+                        oldest['timestamp'] = now
+                    else:
+                        # no duplicate → replace absolute oldest
+                        oldest_all = min(self.current_objects, key=lambda o: o['timestamp'])
+                        idx = self.current_objects.index(oldest_all)
+                        self.current_objects[idx] = {
+                            'label': det['label'],
+                            'area': det['area'],
+                            'pos': det['pos'],
+                            'timestamp': now
+                        }
+        # Publish masked visualization
         try:
             mask_msg = self.bridge.cv2_to_imgmsg(vis, encoding='bgr8')
             self.mask_pub_.publish(mask_msg)
@@ -130,15 +152,11 @@ class CameraCaptionNode(Node):
             self.get_logger().error(f'Mask pub error: {e}')
 
     def timer_callback(self):
-        """
+        '''
         Publish the current memory of detected objects
-        """
-        # Assemble full message including raw memory
+        '''
         full_msg = str(self.current_objects)
-        # Publish to /camera_caption
         self.publisher_.publish(String(data=full_msg))
-        # Log to ROS for debugging
-        # self.get_logger().info(f'{self.current_objects}')
 
     def on_shutdown(self):
         if rclpy.ok():
