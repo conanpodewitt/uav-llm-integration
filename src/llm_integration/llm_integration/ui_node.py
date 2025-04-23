@@ -129,9 +129,6 @@ class UINode(Node):
         text = msg.data.strip()
         data = []
         data = ast.literal_eval(text)
-        # Ensure it’s a list of dicts
-        if not isinstance(data, list):
-            data = []
         self.memory_list = data
         self.update_memory_listbox()
 
@@ -142,6 +139,7 @@ class UINode(Node):
         self.listbox.delete(0, tk.END)
         for action in self.current_plan:
             self.listbox.insert(tk.END, action)
+        self.listbox.see(tk.END)
         self.highlight_current()
 
     def highlight_current(self):
@@ -161,6 +159,7 @@ class UINode(Node):
         for o in self.memory_list:
             entry = f"{o.get('label')} @ {o.get('pos')} ({int(o.get('area',0))} px)"
             self.memory_listbox.insert(tk.END, entry)
+        self.memory_listbox.see(tk.END)
 
     def send_command(self):
         '''
@@ -179,8 +178,6 @@ class UINode(Node):
         '''
         self.cmd_pub.publish(String(data='LLM_STOP'))
         self.get_logger().info('Published emergency stop')
-
-    # ─── Placeholder Handlers ───
 
     def _clear_placeholder(self, event):
         '''
