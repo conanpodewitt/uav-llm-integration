@@ -15,10 +15,10 @@ class CameraCaptionNode(Node):
         self.mask_pub_ = self.create_publisher(Image, '/camera_masked', 10)
         self.subscription = self.create_subscription(Image, '/camera', self.image_callback, 10)
         # Configuration
-        self.area_threshold = int(os.getenv('AREA_THRESHOLD', '500'))       # min blob area
-        self.match_tol = float(os.getenv('AREA_MATCH_TOL', '0.2'))         # relative area tolerance
-        self.max_tracked = int(os.getenv('MAX_TRACKED', '5'))             # max objects to track
-        interval = float(os.getenv('SYSTEM_INTERVAL', '1.0'))             # publish interval
+        self.area_threshold = int(os.getenv('AREA_THRESHOLD'))  # min blob area
+        self.match_tol = float(os.getenv('AREA_MATCH_TOL'))     # relative area tolerance
+        self.max_tracked = int(os.getenv('MAX_TRACKED'))        # max objects to track
+        interval = float(os.getenv('SYSTEM_INTERVAL'))          # publish interval
         # State
         self.bridge = CvBridge()
         self.current_objects = []  # list of tracked objects: dicts with label, area, pos, timestamp
@@ -137,7 +137,7 @@ class CameraCaptionNode(Node):
         full_msg = str(self.current_objects)
         # Publish to /camera_caption
         self.publisher_.publish(String(data=full_msg))
-        # Also log to ROS for debugging
+        # Log to ROS for debugging
         # self.get_logger().info(f'{self.current_objects}')
 
     def on_shutdown(self):

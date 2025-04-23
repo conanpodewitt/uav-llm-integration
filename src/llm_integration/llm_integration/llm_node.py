@@ -24,6 +24,7 @@ class LLMNode(Node):
         self.plan_index = 0
         self.paused = False
         self.plan_history = collections.deque(maxlen=3)
+        self.detected_objects = []
         # Load drive parameters
         self.forward_speed = float(os.getenv('MAX_FORWARD_SPEED', '0.5'))
         self.backward_speed = float(os.getenv('MAX_REVERSE_SPEED', '-0.5'))
@@ -40,8 +41,8 @@ class LLMNode(Node):
         self.api_key = os.getenv('LLM_API_KEY')
         self.llm_url = os.getenv('LLM_URL')
         self.model = os.getenv('LLM_MODEL')
-        self.temperature = float(os.getenv('LLM_TEMPERATURE', '0.7'))
-        self.system_interval = float(os.getenv('SYSTEM_INTERVAL', '2.5'))
+        self.temperature = float(os.getenv('LLM_TEMPERATURE'))
+        self.system_interval = float(os.getenv('SYSTEM_INTERVAL'))
         self.system_prompt = self.load_system_prompt('uav-llm-integration/system_prompt.txt')
         # Timers
         self.plan_timer = self.create_timer(self.system_interval, self.replan_callback)
@@ -85,6 +86,12 @@ class LLMNode(Node):
         '''
         if not self.paused:
             self.latest_caption = msg.data.strip()
+            # Parse it into a Python list of dicts
+            try:
+                data = json.loads(self.latest_caption)
+                self.detected_objects = data
+            except Exception:
+                self.detected_objects = []
 
     def generate_plan(self):
         '''
@@ -118,6 +125,17 @@ class LLMNode(Node):
         '''        
         if self.paused or not self.plan:
             return
+        # If target keyword (from latest_text) is in view, re‐generate an approach plan
+        target = self.latest_text.lower()
+        for obj in self.detected_objects:
+            if obj.get('label', '').lower() in target:
+                self.get_logger().info('🎯 Target detected—regenerating approach plan.')
+                # Cancel any ongoing execution
+                if self.exec_timer:
+                    self.exec_timer.cancel()
+                # Forcefully regenerate a new plan
+                self.generate_plan()
+                return
         remaining = self.plan[self.plan_index:]
         actions = list(self.action_params.keys())
         history_str = ''
