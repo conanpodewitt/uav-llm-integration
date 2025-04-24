@@ -18,13 +18,10 @@ class CameraCaptionNode(Node):
         self.area_threshold = int(os.getenv('AREA_THRESHOLD'))  # min blob area
         self.match_tol = float(os.getenv('AREA_MATCH_TOL'))     # relative area tolerance
         self.max_tracked = int(os.getenv('MAX_TRACKED'))        # max objects to track
-        interval = float(os.getenv('SYSTEM_INTERVAL'))          # publish interval
         # State
         self.bridge = CvBridge()
         self.current_objects = []  # list of tracked objects: dicts with label, area, pos, timestamp
         self.latest_detections = []
-        # Start timer for publishing only
-        self.caption_timer = self.create_timer(interval, self.timer_callback)
 
     def detect_objects(self, image):
         '''
@@ -150,11 +147,7 @@ class CameraCaptionNode(Node):
             self.mask_pub_.publish(mask_msg)
         except CvBridgeError as e:
             self.get_logger().error(f'Mask pub error: {e}')
-
-    def timer_callback(self):
-        '''
-        Publish the current memory of detected objects
-        '''
+        # Publish camera_caption immediately after processing
         full_msg = str(self.current_objects)
         self.publisher_.publish(String(data=full_msg))
 
