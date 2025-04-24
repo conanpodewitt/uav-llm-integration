@@ -37,11 +37,25 @@ class LLMNode(Node):
         self.turn_right_speed = float(os.getenv('MAX_TURN_RIGHT_SPEED', '-0.25'))
         # Action primitives
         self.action_params = {
-            'forward':   {'linear': self.forward_speed,  'angular': 0.0,                  'distance': 0.5},
-            'backward':  {'linear': self.backward_speed, 'angular': 0.0,                  'distance': 0.5},
-            'turn_left': {'linear': 0.0,                 'angular': self.turn_left_speed,  'angle': np.pi/4},
-            'turn_right':{'linear': 0.0,                 'angular': self.turn_right_speed, 'angle': np.pi/4},
+            'small_forward':  {'linear': self.forward_speed,  'angular': 0.0,   'duration': 0.5},
+            'big_forward':    {'linear': self.forward_speed,  'angular': 0.0,   'duration': 1.0},
+            'small_backward': {'linear': self.backward_speed, 'angular': 0.0,   'duration': 0.5},
+            'big_backward':   {'linear': self.backward_speed, 'angular': 0.0,   'duration': 1.0},
+            'small_left':     {'linear': 0.0, 'angular': self.turn_left_speed,  'duration': 0.5},
+            'big_left':       {'linear': 0.0, 'angular': self.turn_left_speed,  'duration': 1.0},
+            'small_right':    {'linear': 0.0, 'angular': self.turn_right_speed, 'duration': 0.5},
+            'big_right':      {'linear': 0.0, 'angular': self.turn_right_speed, 'duration': 1.0},
+            'search':         {'linear': 0.0, 'angular': self.turn_right_speed * 2.0, 'duration': 10.0},
         }
+        # Precompute action keys and regex patterns for performance
+        self.action_keys = list(self.action_params.keys())
+        colors = ['red', 'blue', 'yellow', 'purple']
+        self.colors = colors
+        self.target_regex = re.compile(
+            r'\b(?:' + '|'.join(colors) + r')\b',
+            re.IGNORECASE
+        )
+        self.json_pattern = re.compile(r'\{.*?\}', re.DOTALL)
         # LLM settings
         self.api_key = os.getenv('LLM_API_KEY')
         self.llm_url = os.getenv('LLM_URL')
@@ -92,10 +106,8 @@ class LLMNode(Node):
         '''
         Extract target object from user command based on predefined colors
         '''
-        colors = ['red', 'blue', 'yellow', 'purple']
-        match = re.search(r'\b(?:' + '|'.join(colors) + r')\b', command.lower())
-        target = match.group(0) if match else ''
-        return target
+        match = self.target_regex.search(command)
+        return match.group(0).lower() if match else ''
 
     def caption_callback(self, msg: String):
         '''
@@ -148,6 +160,8 @@ class LLMNode(Node):
                     self.last_target_pos = position
                     # Set a cooldown to prevent rapid re-detection
                     self.approach_cooldown = 2.0  # 2 second cooldown
+                    # Update the caption sent to the LLM for this interrupt
+                    self.latest_caption = f"Detected objects: {self.detected_objects}"
                     # Generate a new approach plan with position info
                     self.generate_approach(obj)
                 return
@@ -158,7 +172,7 @@ class LLMNode(Node):
         '''        
         if self.paused or not self.latest_text:
             return
-        actions = list(self.action_params.keys())
+        actions = self.action_keys
         history_str = ''
         if self.plan_history:
             history_str = f"Previous plans: {list(self.plan_history)}\n"
@@ -184,7 +198,7 @@ class LLMNode(Node):
         '''
         if self.paused:
             return
-        actions = list(self.action_params.keys())
+        actions = self.action_keys
         history_str = ''
         if self.plan_history:
             history_str = f"Previous plans: {list(self.plan_history)}\n"
@@ -216,7 +230,7 @@ class LLMNode(Node):
         if self.paused or not self.plan:
             return
         remaining = self.plan[self.plan_index:]
-        actions = list(self.action_params.keys())
+        actions = self.action_keys
         history_str = ''
         if self.plan_history:
             history_str = f"Previous plans: {list(self.plan_history)}\n"
@@ -257,10 +271,10 @@ class LLMNode(Node):
         body = {'model':self.model,'messages':messages,'temperature':self.temperature}
         headers = {'Authorization':f'Bearer {self.api_key}','Content-Type':'application/json'}
         try:
-            r = self.session.post(self.llm_url,json=body,headers=headers)
+            r = self.session.post(self.llm_url, json=body, headers=headers)
             r.raise_for_status()
             content = r.json()['choices'][0]['message']['content']
-            match = re.search(r"\{.*?\}",content,re.DOTALL)
+            match = self.json_pattern.search(content)
             if not match:
                 self.get_logger().error(f'No JSON in response: {content}')
                 return []
@@ -280,7 +294,7 @@ class LLMNode(Node):
 
     def execute_next_action(self):
         '''
-        Publish twist for next action, schedule stop
+        Publish twist for next action, schedule stop based on duration
         '''    
         if self.paused: return
         if self.plan_index >= len(self.plan):
@@ -289,13 +303,26 @@ class LLMNode(Node):
         action = self.plan[self.plan_index]
         params = self.action_params.get(action)
         if not params:
-            self.plan_index+=1; return
-        twist = Twist(linear=type(Twist().linear)(x=params['linear']), angular=type(Twist().angular)(z=params['angular']))
+            self.plan_index+=1
+            return
+        # Create and publish the twist command
+        twist = Twist(
+            linear=type(Twist().linear)(x=params['linear']), 
+            angular=type(Twist().angular)(z=params['angular'])
+        )
         self.cmd_pub.publish(twist)
-        duration = (params.get('distance',params.get('angle',1.0)) /
+        # Use the explicit duration parameter if available, otherwise calculate it
+        if 'duration' in params:
+            duration = params['duration']
+        else:
+            # Fallback to old calculation method
+            duration = (params.get('distance', params.get('angle', 1.0)) /
                     (abs(self.forward_speed) if 'distance' in params else abs(params['angular']) or 1.0))
-        self.exec_timer.cancel()
-        self.exec_timer = self.create_timer(duration,self.on_action_complete)
+        self.get_logger().info(f"Executing action: {action} for {duration:.2f} seconds")
+        # Cancel any existing timer and create a new one
+        if self.exec_timer:
+            self.exec_timer.cancel()
+        self.exec_timer = self.create_timer(duration, self.on_action_complete)
 
     def on_action_complete(self):
         '''
