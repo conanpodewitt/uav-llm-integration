@@ -20,43 +20,40 @@ class CameraCaptionNode(Node):
         self.max_tracked = int(os.getenv('MAX_TRACKED'))        # max objects to track
         # State
         self.bridge = CvBridge()
-        self.current_objects = []  # list of tracked objects: dicts with label, area, pos, timestamp
+        self.current_objects = []
         self.latest_detections = []
-
-    def detect_objects(self, image):
-        '''
-        Detect colored blobs via HSV thresholding
-        Returns list of dicts: {label, area, bbox}
-        and a visualization image with color overlays
-        '''
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        detections = []
-        vis = np.ones_like(image) * 255
-
-        color_ranges = {
-            'red': [((0,100,100),(10,255,255)),((160,100,100),(180,255,255))],
+        # Precomputed color ranges
+        self.color_ranges = {
+            'red': [((0,100,100),(10,255,255)), ((160,100,100),(180,255,255))],
             'blue': [((100,150,0),(140,255,255))],
             'yellow': [((20,100,100),(30,255,255))],
             'purple': [((130,50,50),(160,255,255))],
         }
-        color_bgr = {
+        self.color_bgr = {
             'red': (0,0,255),
             'blue': (255,0,0),
             'yellow': (0,255,255),
             'purple': (128,0,128),
         }
-        for label, ranges in color_ranges.items():
+        self.kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
+
+    def detect_objects(self, image):
+        '''
+        Detect colored blobs via HSV thresholding
+        '''
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        detections = []
+        vis = np.ones_like(image) * 255
+        # Use precomputed maps
+        for label, ranges in self.color_ranges.items():
             mask = None
             for low, high in ranges:
                 m = cv2.inRange(hsv, np.array(low, 'uint8'), np.array(high, 'uint8'))
                 mask = m if mask is None else cv2.bitwise_or(mask, m)
-            # Clean mask
-            kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5,5))
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kern)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kern)
-            # Overlay color
-            vis[mask != 0] = color_bgr[label]
-            # Find contours
+            # Clean and overlay
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.kern)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.kern)
+            vis[mask != 0] = self.color_bgr[label]
             cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             for c in cnts:
                 area = cv2.contourArea(c)
@@ -91,31 +88,27 @@ class CameraCaptionNode(Node):
         Process each frame: detect, match to memory, and publish masked image
         '''
         try:
-            img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+            img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')  # assume success
         except CvBridgeError as e:
             self.get_logger().error(f'CV Bridge error: {e}')
             return
         # Detect & position
         dets, vis = self.detect_objects(img)
         self.latest_detections = self.analyse_positions(dets, img.shape[1])
-        now = time.time()
-        # Match detections to existing memory
+        now = time.time()  # cache timestamp once
+        co = self.current_objects
+        # Match & update
         for det in self.latest_detections:
             matched = False
-            for obj in self.current_objects:
-                if det['label'] == obj['label']:
-                    rel = abs(obj['area'] - det['area']) / obj['area']
-                    if rel < self.match_tol:
-                        # update existing
-                        obj['area'] = det['area']
-                        obj['pos'] = det['pos']
-                        obj['timestamp'] = now
-                        matched = True
-                        break
+            for obj in co:
+                if det['label'] == obj['label'] and abs(obj['area'] - det['area'])/obj['area'] < self.match_tol:
+                    obj.update(area=det['area'], pos=det['pos'], timestamp=now)
+                    matched = True
+                    break
             if not matched:
-                # new object
+                # New object
                 if len(self.current_objects) < self.max_tracked:
-                    # room to add
+                    # Room to add
                     self.current_objects.append({
                         'label': det['label'],
                         'area': det['area'],
@@ -123,16 +116,16 @@ class CameraCaptionNode(Node):
                         'timestamp': now
                     })
                 else:
-                    # memory full → replace oldest duplicate‐color first
+                    # Memory full, then replace oldest duplicate‐color first
                     same = [o for o in self.current_objects if o['label'] == det['label']]
                     if same:
-                        # find oldest of that color
+                        # Find oldest of that color
                         oldest = min(same, key=lambda o: o['timestamp'])
                         oldest['area'] = det['area']
                         oldest['pos'] = det['pos']
                         oldest['timestamp'] = now
                     else:
-                        # no duplicate → replace absolute oldest
+                        # No duplicate, then replace absolute oldest
                         oldest_all = min(self.current_objects, key=lambda o: o['timestamp'])
                         idx = self.current_objects.index(oldest_all)
                         self.current_objects[idx] = {
