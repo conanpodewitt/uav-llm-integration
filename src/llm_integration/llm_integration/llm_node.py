@@ -1,3 +1,4 @@
+import ast
 import os
 import json
 import re
@@ -25,6 +26,10 @@ class LLMNode(Node):
         self.paused = False
         self.plan_history = collections.deque(maxlen=3)
         self.detected_objects = []
+        self.target_object = None
+        self.approaching_target = False  # Flag to indicate already approaching a target
+        self.approach_cooldown = 0.0     # Timer to prevent rapid re-detection
+        self.last_target_pos = None      # Store the last position of the target
         # Load drive parameters
         self.forward_speed = float(os.getenv('MAX_FORWARD_SPEED', '0.5'))
         self.backward_speed = float(os.getenv('MAX_REVERSE_SPEED', '-0.5'))
@@ -48,6 +53,7 @@ class LLMNode(Node):
         self.plan_timer = self.create_timer(self.system_interval, self.replan_callback)
         self.exec_timer = None
         self.session = requests.Session()
+        self.cooldown_timer = self.create_timer(0.1, self.update_cooldown)
 
     def load_system_prompt(self, filename):
         '''
@@ -78,20 +84,73 @@ class LLMNode(Node):
             self.plan_timer = self.create_timer(self.system_interval, self.replan_callback)
         self.latest_text = text
         self.get_logger().info(f"Received command: '{self.latest_text}'")
+        self.target_object = self.extract_target(self.latest_text)
+        self.get_logger().info(f"Target object set to: '{self.target_object}'")
         self.generate_plan()
+    
+    def extract_target(self, command):
+        '''
+        Extract target object from user command based on predefined colors
+        '''
+        colors = ['red', 'blue', 'yellow', 'purple']
+        match = re.search(r'\b(?:' + '|'.join(colors) + r')\b', command.lower())
+        target = match.group(0) if match else ''
+        return target
 
     def caption_callback(self, msg: String):
         '''
-        Update camera caption if not paused
+        Update camera caption and check for target object
         '''
         if not self.paused:
-            self.latest_caption = msg.data.strip()
-            # Parse it into a Python list of dicts
-            try:
-                data = json.loads(self.latest_caption)
-                self.detected_objects = data
-            except Exception:
-                self.detected_objects = []
+            text = msg.data.strip()
+            data = ast.literal_eval(text)
+            self.detected_objects = data
+            if self.target_object and self.exec_timer:
+                self.check_target()
+    
+    def update_cooldown(self):
+        '''
+        Decrement the approach cooldown timer
+        '''
+        if self.approach_cooldown > 0:
+            self.approach_cooldown -= 0.1
+
+    def check_target(self):
+        '''
+        Check if target object is detected and interrupt current action if so
+        '''
+        if not self.target_object or self.approach_cooldown > 0:
+            return
+        target_words = self.target_object.lower().split()
+        # Check if the target object is in view
+        for obj in self.detected_objects:
+            obj_label = obj.get('label', '').lower()
+            # Check if any of the target words are in the object label
+            if any(word in obj_label for word in target_words):
+                position = obj.get('pos', 'unknown')
+                # If we're already approaching this target in the same position, don't interrupt
+                if self.approaching_target and self.last_target_pos == position:
+                    return
+                # Check if the target has moved significantly (if we were already approaching)
+                significant_change = False
+                if self.approaching_target and self.last_target_pos != position:
+                    significant_change = True
+                # Only interrupt if we're not already approaching or there's significant change
+                if not self.approaching_target or significant_change:
+                    self.get_logger().info(f'Target "{obj_label}" detected at {position}—interrupting current action')
+                    # Stop the current action
+                    self.cmd_pub.publish(Twist())
+                    # Cancel the execution timer
+                    if self.exec_timer:
+                        self.exec_timer.cancel()
+                    # Set the approaching flag and record position
+                    self.approaching_target = True
+                    self.last_target_pos = position
+                    # Set a cooldown to prevent rapid re-detection
+                    self.approach_cooldown = 2.0  # 2 second cooldown
+                    # Generate a new approach plan with position info
+                    self.generate_approach(obj)
+                return
 
     def generate_plan(self):
         '''
@@ -109,7 +168,7 @@ class LLMNode(Node):
             f'Image caption: {self.latest_caption}\n'
             f'Respond with EXACTLY one JSON object: {{\"plan\": [list]}} using actions from {actions}.'
         )
-        plan = self.call_api_for_plan(user_msg)
+        plan = self.call_api(user_msg)
         if plan:
             self.plan_history.append(plan.copy())
             self.plan = plan
@@ -119,23 +178,43 @@ class LLMNode(Node):
         else:
             self.get_logger().warn('LLM returned empty plan')
 
+    def generate_approach(self, detected_object):
+        '''
+        Generate a specialized plan to approach the detected object
+        '''
+        if self.paused:
+            return
+        actions = list(self.action_params.keys())
+        history_str = ''
+        if self.plan_history:
+            history_str = f"Previous plans: {list(self.plan_history)}\n"
+        position = detected_object.get('pos', 'unknown')
+        area = detected_object.get('area', 0)
+        user_msg = (
+            f'{history_str}'
+            f'User command: {self.latest_text}\n'
+            f'Target "{detected_object["label"]}" detected at position "{position}" with area {area}\n'
+            f'Image caption: {self.latest_caption}\n'
+            f'Respond with EXACTLY one JSON object: {{\"plan\": [list]}} to approach the target using actions from {actions}.\n'
+            f'If the target is in the center, consider moving forward. If left/right, turn in that direction first.'
+        )
+        plan = self.call_api(user_msg)
+        if plan:
+            self.plan_history.append(plan.copy())
+            self.plan = plan
+            self.plan_index = 0
+            self.publish_plan()
+            self.start_execution()
+        else:
+            self.get_logger().warn('LLM returned empty approach plan')
+            self.approaching_target = False  # Reset flag if plan generation failed
+
     def replan_callback(self):
         '''
-        Adjust and publish updated plan
+        Periodic replan check based on current state
         '''        
         if self.paused or not self.plan:
             return
-        # If target keyword (from latest_text) is in view, re‐generate an approach plan
-        target = self.latest_text.lower()
-        for obj in self.detected_objects:
-            if obj.get('label', '').lower() in target:
-                self.get_logger().info('🎯 Target detected—regenerating approach plan.')
-                # Cancel any ongoing execution
-                if self.exec_timer:
-                    self.exec_timer.cancel()
-                # Forcefully regenerate a new plan
-                self.generate_plan()
-                return
         remaining = self.plan[self.plan_index:]
         actions = list(self.action_params.keys())
         history_str = ''
@@ -148,7 +227,7 @@ class LLMNode(Node):
             f'Remaining plan: {remaining}\n'
             f'Respond with EXACTLY one JSON object: {{\"plan\": [list]}} adjusting actions from {actions}.'
         )
-        plan = self.call_api_for_plan(user_msg)
+        plan = self.call_api(user_msg)
         if plan:
             self.plan_history.append(plan.copy())
             self.plan = self.plan[:self.plan_index] + plan
@@ -169,7 +248,7 @@ class LLMNode(Node):
         idx_msg = Int32(data=self.plan_index)
         self.idx_pub.publish(idx_msg)
 
-    def call_api_for_plan(self, user_msg) -> list:
+    def call_api(self, user_msg) -> list:
         '''
         Call LLM and parse JSON plan
         '''    
@@ -223,8 +302,12 @@ class LLMNode(Node):
         Stop and advance plan index
         '''    
         self.cmd_pub.publish(Twist())
-        self.plan_index+=1
+        self.plan_index += 1
         self.publish_index()
+        # If we've completed all actions in the approach plan, reset the approaching flag
+        if self.approaching_target and self.plan_index >= len(self.plan):
+            self.approaching_target = False
+            self.last_target_pos = None
         self.start_execution()
 
     def on_shutdown(self): 
