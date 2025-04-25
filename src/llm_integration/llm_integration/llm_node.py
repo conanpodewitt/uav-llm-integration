@@ -21,6 +21,7 @@ class LLMNode(Node):
         # Internal state
         self.latest_text = ''
         self.latest_caption = ''
+        self.max_retries = float(os.getenv('LLM_MAX_RETRIES'))
         self.plan = []
         self.plan_index = 0
         self.paused = False
@@ -264,25 +265,29 @@ class LLMNode(Node):
 
     def call_api(self, user_msg) -> list:
         '''
-        Call LLM and parse JSON plan
+        Call LLM and parse JSON plan, retry immediately on error
         '''    
         messages = [{'role':'system','content':self.system_prompt}] if self.system_prompt else []
         messages.append({'role':'user','content':user_msg})
-        body = {'model':self.model,'messages':messages,'temperature':self.temperature}
-        headers = {'Authorization':f'Bearer {self.api_key}','Content-Type':'application/json'}
-        try:
-            r = self.session.post(self.llm_url, json=body, headers=headers)
-            r.raise_for_status()
-            content = r.json()['choices'][0]['message']['content']
-            match = self.json_pattern.search(content)
-            if not match:
-                self.get_logger().error(f'No JSON in response: {content}')
-                return []
-            data = json.loads(match.group(0))
-            return data.get('plan',[]) if isinstance(data.get('plan',[]), list) else []
-        except Exception as e:
-            self.get_logger().error(f'API error: {e}')
-            return []
+        body = {'model':self.model, 'messages':messages, 'temperature':self.temperature}
+        headers = {'Authorization':f'Bearer {self.api_key}', 'Content-Type':'application/json'}
+        for attempt in range(int(self.max_retries)):
+            try:
+                r = self.session.post(self.llm_url, json=body, headers=headers)
+                r.raise_for_status()
+                content = r.json()['choices'][0]['message']['content']
+                match = self.json_pattern.search(content)
+                if not match:
+                    self.get_logger().error(f'No JSON in response: {content}')
+                    return []
+                data = json.loads(match.group(0))
+                return data.get('plan', []) if isinstance(data.get('plan', []), list) else []
+            except Exception as e:
+                self.get_logger().error(f'API error (attempt {attempt+1}/{self.max_retries}): {e}')
+                if attempt == self.max_retries - 1:
+                    return []
+                # retry immediately
+        return []
 
     def start_execution(self):
         '''
