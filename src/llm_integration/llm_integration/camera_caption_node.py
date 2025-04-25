@@ -7,6 +7,7 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 import cv2
 import numpy as np
+import json
 
 class CameraCaptionNode(Node):
     def __init__(self):
@@ -140,8 +141,11 @@ class CameraCaptionNode(Node):
             self.mask_pub_.publish(mask_msg)
         except CvBridgeError as e:
             self.get_logger().error(f'Mask pub error: {e}')
-        # Publish camera_caption immediately after processing
-        full_msg = str(self.current_objects)
+        # Publish camera_caption with current time
+        full_msg = json.dumps({
+            "current_time": now,
+            "objects": self.current_objects
+        })
         self.publisher_.publish(String(data=full_msg))
 
     def on_shutdown(self):

@@ -21,6 +21,7 @@ class LLMNode(Node):
         # Internal state
         self.latest_text = ''
         self.latest_caption = ''
+        self.latest_caption_time = None
         self.max_retries = int(os.getenv('LLM_MAX_RETRIES'))
         self.plan = []
         self.plan_index = 0
@@ -117,7 +118,14 @@ class LLMNode(Node):
         if not self.paused:
             text = msg.data.strip()
             data = ast.literal_eval(text)
-            self.detected_objects = data
+            # unpack new structure
+            self.latest_caption_time = data.get('current_time')
+            self.detected_objects = data.get('objects', [])
+            # include time in caption passed to LLM
+            self.latest_caption = (
+                f"Current time: {self.latest_caption_time}. "
+                f"Detected objects: {self.detected_objects}"
+            )
             if self.target_object and self.exec_timer:
                 self.check_target()
     
