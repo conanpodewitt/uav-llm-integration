@@ -21,7 +21,7 @@ class LLMNode(Node):
         # Internal state
         self.latest_text = ''
         self.latest_caption = ''
-        self.max_retries = float(os.getenv('LLM_MAX_RETRIES'))
+        self.max_retries = int(os.getenv('LLM_MAX_RETRIES'))
         self.plan = []
         self.plan_index = 0
         self.paused = False
@@ -32,10 +32,10 @@ class LLMNode(Node):
         self.approach_cooldown = 0.0     # Timer to prevent rapid re-detection
         self.last_target_pos = None      # Store the last position of the target
         # Load drive parameters
-        self.forward_speed = float(os.getenv('MAX_FORWARD_SPEED', '0.5'))
-        self.backward_speed = float(os.getenv('MAX_REVERSE_SPEED', '-0.5'))
-        self.turn_left_speed = float(os.getenv('MAX_TURN_LEFT_SPEED', '0.25'))
-        self.turn_right_speed = float(os.getenv('MAX_TURN_RIGHT_SPEED', '-0.25'))
+        self.forward_speed = float(os.getenv('MAX_FORWARD_SPEED'))
+        self.backward_speed = float(os.getenv('MAX_REVERSE_SPEED'))
+        self.turn_left_speed = float(os.getenv('MAX_TURN_LEFT_SPEED'))
+        self.turn_right_speed = float(os.getenv('MAX_TURN_RIGHT_SPEED'))
         # Action primitives
         self.action_params = {
             'small_forward':  {'linear': self.forward_speed,  'angular': 0.0,   'duration': 0.5},
