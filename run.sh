@@ -74,7 +74,7 @@ docker build \
     --build-arg LLM_URL=${LLM_URL} \
     --build-arg LLM_MODEL=${LLM_MODEL} \
     --build-arg LLM_TEMPERATURE=${LLM_TEMPERATURE} \
-    --build-arg LLM_MAX_TOKENS=${LLM_MAX_RETRIES} \
+    --build-arg LLM_MAX_RETRIES=${LLM_MAX_RETRIES} \
     --build-arg SYSTEM_INTERVAL=${SYSTEM_INTERVAL} \
     -t $IMAGE_NAME .
 
