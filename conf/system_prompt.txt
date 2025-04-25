@@ -19,7 +19,8 @@ Your job:
     'big_right': 'Turn right by a larger angle',
     'search': 'Perform a complete rotation to search for objects'
   }
-- Abstain from calling big_forward unless the goal is in view.
+- Unless the goal is in view and the current time and timestamp of the goal are similar, do not call big_forward.
+- If the current time and and goal object are too different, call search.
 - Do not include any natural‑language explanation or extra fields.
 - If there are still itms left in the previous plan, you make adjust them as necessary.
 - If there are no items left, generate a new plan using your current context.
