@@ -124,12 +124,24 @@ class UINode(Node):
 
     def memory_callback(self, msg: String):
         """
-        Parse either valid JSON or Python repr lists for memory
+        Parse either valid JSON or Python repr lists for memory,
+        ignore 'current_time' if present
         """
         text = msg.data.strip()
-        data = []
-        data = ast.literal_eval(text)
-        self.memory_list = data
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict) and 'objects' in parsed:
+                data_list = parsed['objects']
+            elif isinstance(parsed, list):
+                data_list = parsed
+            else:
+                data_list = []
+        except Exception:
+            try:
+                data_list = ast.literal_eval(text)
+            except Exception:
+                data_list = []
+        self.memory_list = data_list
         self.update_memory_listbox()
 
     def update_listbox(self):
