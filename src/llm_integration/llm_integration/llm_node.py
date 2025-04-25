@@ -65,6 +65,7 @@ class LLMNode(Node):
         self.temperature = float(os.getenv('LLM_TEMPERATURE'))
         self.system_interval = float(os.getenv('SYSTEM_INTERVAL'))
         self.system_prompt = self.load_system_prompt('uav-llm-integration/system_prompt.txt')
+        self.time_diff_threshold = float(os.getenv('TIME_DIFF_THRESHOLD'))
         # Timers
         self.plan_timer = self.create_timer(self.system_interval, self.replan_callback)
         self.exec_timer = None
@@ -113,13 +114,27 @@ class LLMNode(Node):
 
     def caption_callback(self, msg: String):
         '''
-        Update camera caption and check for target object
+        Update camera caption and check for target object and timestamp skew
         '''
         if not self.paused:
             text = msg.data.strip()
             data = ast.literal_eval(text)
-            # unpack new structure
+            # Unpack new structure
             self.latest_caption_time = data.get('current_time')
+            # Check for timestamp difference
+            now = self.get_clock().now().nanoseconds / 1e9
+            if abs(self.latest_caption_time - now) > self.time_diff_threshold:
+                self.get_logger().warn(
+                    f'Caption timestamp {self.latest_caption_time:.2f}s vs now {now:.2f}s exceeds '
+                    f'{self.time_diff_threshold}s – triggering replan'
+                )
+                # Stop any ongoing action
+                if self.exec_timer:
+                    self.exec_timer.cancel()
+                self.cmd_pub.publish(Twist())
+                # Immediate replan
+                self.replan_callback()
+                return
             self.detected_objects = data.get('objects', [])
             # include time in caption passed to LLM
             self.latest_caption = (
