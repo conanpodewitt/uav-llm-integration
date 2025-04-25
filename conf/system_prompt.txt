@@ -18,7 +18,7 @@ Your job:
     'big_right': 'Turn right by a larger angle',
     'search': 'Perform a complete rotation to search for objects'
   }
-- Abstain from calling the same command consecutively
+- Abstain from calling big_forward unless the goal is in view.
 - Do not include any natural‑language explanation or extra fields.
 - If there are still itms left in the previous plan, you make adjust them as necessary.
 - If there are no items left, generate a new plan using your current context.

@@ -38,10 +38,10 @@ class LLMNode(Node):
         self.turn_right_speed = float(os.getenv('MAX_TURN_RIGHT_SPEED'))
         # Action primitives
         self.action_params = {
-            'small_forward':  {'linear': self.forward_speed,  'angular': 0.0,   'duration': 0.5},
-            'big_forward':    {'linear': self.forward_speed,  'angular': 0.0,   'duration': 1.0},
-            'small_backward': {'linear': self.backward_speed, 'angular': 0.0,   'duration': 0.5},
-            'big_backward':   {'linear': self.backward_speed, 'angular': 0.0,   'duration': 1.0},
+            'small_forward':  {'linear': self.forward_speed,  'angular': 0.0,   'duration': 1.0},
+            'big_forward':    {'linear': self.forward_speed,  'angular': 0.0,   'duration': 2.0},
+            'small_backward': {'linear': self.backward_speed, 'angular': 0.0,   'duration': 1.0},
+            'big_backward':   {'linear': self.backward_speed, 'angular': 0.0,   'duration': 2.0},
             'small_left':     {'linear': 0.0, 'angular': self.turn_left_speed,  'duration': 0.5},
             'big_left':       {'linear': 0.0, 'angular': self.turn_left_speed,  'duration': 1.0},
             'small_right':    {'linear': 0.0, 'angular': self.turn_right_speed, 'duration': 0.5},
