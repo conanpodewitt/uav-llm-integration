@@ -5,28 +5,15 @@
       <max_step_size>0.001</max_step_size>
       <real_time_factor>1.0</real_time_factor>
     </physics>
-    <plugin
-      filename="ignition-gazebo-physics-system"
-      name="ignition::gazebo::systems::Physics">
-    </plugin>
-    <plugin
-      filename="ignition-gazebo-user-commands-system"
-      name="ignition::gazebo::systems::UserCommands">
-    </plugin>
-    <plugin
-      filename="ignition-gazebo-scene-broadcaster-system"
-      name="ignition::gazebo::systems::SceneBroadcaster">
-    </plugin>
-    <plugin filename="ignition-gazebo-imu-system"
-            name="ignition::gazebo::systems::Imu">
-    </plugin>
-    <plugin filename="ignition-gazebo-sensors-system"
-            name="ignition::gazebo::systems::Sensors">
+    <plugin filename="ignition-gazebo-physics-system" name="ignition::gazebo::systems::Physics"/>
+    <plugin filename="ignition-gazebo-user-commands-system" name="ignition::gazebo::systems::UserCommands"/>
+    <plugin filename="ignition-gazebo-scene-broadcaster-system" name="ignition::gazebo::systems::SceneBroadcaster"/>
+    <plugin filename="ignition-gazebo-imu-system" name="ignition::gazebo::systems::Imu"/>
+    <plugin filename="ignition-gazebo-sensors-system" name="ignition::gazebo::systems::Sensors">
       <render_engine>ogre2</render_engine>
     </plugin>
-    <plugin filename="ignition-gazebo-contact-system"
-            name="ignition::gazebo::systems::Contact">
-    </plugin>
+    <plugin filename="ignition-gazebo-contact-system" name="ignition::gazebo::systems::Contact"/>
+    
     <light type="directional" name="sun">
       <cast_shadows>true</cast_shadows>
       <pose>0 0 10 0 0 0</pose>
@@ -40,78 +27,140 @@
       </attenuation>
       <direction>-0.5 0.1 -0.9</direction>
     </light>
+
     <model name="ground_plane">
       <static>true</static>
       <link name="link">
         <collision name="collision">
           <geometry>
             <plane>
-            <normal>0 0 1</normal>
+              <normal>0 0 1</normal>
             </plane>
           </geometry>
         </collision>
         <visual name="visual">
           <geometry>
             <plane>
-            <normal>0 0 1</normal>
-            <size>100 100</size>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
             </plane>
           </geometry>
-        <material>
-          <ambient>0.8 0.8 0.8 1</ambient>
-          <diffuse>0.8 0.8 0.8 1</diffuse>
-          <specular>0.8 0.8 0.8 1</specular>
-        </material>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+          </material>
         </visual>
       </link>
     </model>
-    <model name='wall'>
+
+    <!-- Red Box -->
+    <model name="box_red">
       <static>true</static>
-      <pose>5 0 0 0 0 0</pose>
-      <link name='box'>
-        <inertial>
-          <mass>1.14395</mass>
-          <inertia>
-            <ixx>9.532917</ixx>
-            <ixy>0</ixy>
-            <ixz>0</ixz>
-            <iyy>0.023832</iyy>
-            <iyz>0</iyz>
-            <izz>9.556749</izz>
-          </inertia>
-        </inertial>
-        <visual name='visual'>
+      <pose>5 -3 1 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
           <geometry>
             <box>
-              <size>0.5 10.0 2.0</size>
+              <size>1 1 2</size>
             </box>
           </geometry>
           <material>
-            <ambient>0.0 0.0 1.0 1</ambient>
-            <diffuse>0.0 0.0 1.0 1</diffuse>
-            <specular>0.0 0.0 1.0 1</specular>
+            <ambient>1 0 0 1</ambient>
+            <diffuse>1 0 0 1</diffuse>
+            <specular>1 0 0 1</specular>
           </material>
         </visual>
-        <collision name='collision'>
+        <collision name="collision">
           <geometry>
             <box>
-              <size>0.5 10.0 2.0</size>
+              <size>1 1 2</size>
             </box>
           </geometry>
         </collision>
-        <sensor name='sensor_contact' type='contact'>
-          <contact>
-            <collision>collision</collision>
-          </contact>
-        </sensor>
       </link>
-      <plugin filename="ignition-gazebo-touchplugin-system"
-              name="ignition::gazebo::systems::TouchPlugin">
-        <target>vehicle_blue</target>
-        <namespace>wall</namespace>
-        <time>0.001</time>
-        <enabled>true</enabled>
-      </plugin>
     </model>
+
+    <!-- Blue Box -->
+    <model name="box_blue">
+      <static>true</static>
+      <pose>5 0 1 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>1 1 2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0 0 1 1</ambient>
+            <diffuse>0 0 1 1</diffuse>
+            <specular>0 0 1 1</specular>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>1 1 2</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+
+    <!-- Yellow Box -->
+    <model name="box_yellow">
+      <static>true</static>
+      <pose>5 3 1 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>1 1 2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1 1 0 1</ambient>
+            <diffuse>1 1 0 1</diffuse>
+            <specular>1 1 0 1</specular>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>1 1 2</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+
+    <!-- Purple Box -->
+    <model name="box_purple">
+      <static>true</static>
+      <pose>-5 0 1 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>1 1 2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.5 0 0.5 1</ambient>
+            <diffuse>0.5 0 0.5 1</diffuse>
+            <specular>0.5 0 0.5 1</specular>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>1 1 2</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+
   </world>
 </sdf>

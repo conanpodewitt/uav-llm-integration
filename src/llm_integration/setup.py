@@ -25,7 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'llm_node = llm_integration.llm_node:main',
-            'text_in_node = llm_integration.text_in_node:main',
+            'ui_node = llm_integration.ui_node:main',
             'camera_caption_node = llm_integration.camera_caption_node:main',
         ],
     },
