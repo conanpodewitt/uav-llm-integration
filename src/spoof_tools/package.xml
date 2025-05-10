@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>spoof_tools</name>
+  <version>0.0.1</version>
+  <description>Prompt poisoning and sensor spoofing tests</description>
+  <maintainer email="22877792@student.uwa.edu.au">Conan Po Dewitt</maintainer>
+  <license>MIT License</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <exec_depend>opencv-python</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
