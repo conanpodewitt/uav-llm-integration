@@ -6,22 +6,27 @@ from cv_bridge import CvBridge, CvBridgeError
 import cv2
 import numpy as np
 import sensor_msgs_py.point_cloud2 as pc2
+import os
+import random
 
 class SpoofNode(Node):
     def __init__(self):
         super().__init__('spoof_node')
         self.bridge = CvBridge()
         # Camera: subscribe to orig, publish to real topic
-        self.img_sub = self.create_subscription(Image, '/camera/image_raw_orig', self.cb_image, 10)
-        self.img_pub = self.create_publisher(Image, '/camera/image_raw', 10)
+        self.img_sub = self.create_subscription(Image, '/camera_masked', self.cb_image, 10)
+        self.img_pub = self.create_publisher(Image, '/camera_spoofed', 10)
         # LiDAR: same pattern
-        self.lidar_sub = self.create_subscription(PointCloud2, '/lidar/points_orig', self.cb_lidar, 10)
-        self.lidar_pub = self.create_publisher(PointCloud2, '/lidar/points', 10)
+        self.lidar_sub = self.create_subscription(PointCloud2, '/lidar', self.cb_lidar, 10)
+        self.lidar_pub = self.create_publisher(PointCloud2, '/lidar_spoof', 10)
+        self.p_poison = float(os.environ.get('POISON_RATE', '0.3'))
 
     def cb_image(self, msg: Image):
         '''
         Callback for image spoofing
         '''
+        if random.random() >= self.p_poison:
+            return self.img_pub.publish(msg)
         try:
             img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
             h, w, _ = img.shape
@@ -40,6 +45,8 @@ class SpoofNode(Node):
         '''
         Callback for LiDAR spoofing
         '''
+        if random.random() >= self.p_poison:
+            return self.lidar_pub.publish(msg)
         pts = list(pc2.read_points(msg, skip_nans=True))
         # add 50 ghost points 1m ahead
         ghost = [(1.0, 0.0, 0.0)] * 50

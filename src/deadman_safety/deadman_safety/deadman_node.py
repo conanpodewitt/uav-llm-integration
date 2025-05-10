@@ -10,7 +10,7 @@ class DeadmanNode(Node):
     def __init__(self):
         super().__init__('deadman_node')
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.lidar_sub = self.create_subscription(LaserScan, '/lidar', self.lidar_callback, 10)
+        self.lidar_sub = self.create_subscription(LaserScan, '/lidar_spoof', self.lidar_callback, 10)
         self.custom_joy_sub = self.create_subscription(String, '/custom_joy_cmd', self.joy_callback, 10)
         self.llm_sub = self.create_subscription(Twist, '/llm_cmd', self.llm_callback, 10)
         self.too_close = False
