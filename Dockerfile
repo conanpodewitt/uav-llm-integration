@@ -105,8 +105,8 @@ RUN echo "source ~/uav-llm-integration/install/setup.bash" >> ~/.bashrc
 FROM builder
 
 # Set simulation-specific environment variables
-ENV GZ_SIM_RESOURCE_PATH=/home/pioneer-container/uav-llm-integration/install/uav_sim/share/
-ENV XDG_RUNTIME_DIR=/tmp/runtime-pioneer-container
+ENV GZ_SIM_RESOURCE_PATH=/home/pioneer-container/uav-llm-integration/install/uav_sim/share/ \
+    XDG_RUNTIME_DIR=/tmp/runtime-pioneer-container
 
 # Set variables
 ARG SAFETY_STOP_DISTANCE
@@ -124,6 +124,7 @@ ARG LLM_MAX_RETRIES
 ARG TIME_DIFF_THRESHOLD
 ARG SYSTEM_INTERVAL
 ARG POISON_RATE
+ARG SPOOF_RATE
 ENV SAFETY_STOP_DISTANCE=${SAFETY_STOP_DISTANCE} \
     MAX_FORWARD_SPEED=${MAX_FORWARD_SPEED} \
     MAX_REVERSE_SPEED=${MAX_REVERSE_SPEED} \
@@ -138,7 +139,8 @@ ENV SAFETY_STOP_DISTANCE=${SAFETY_STOP_DISTANCE} \
     LLM_MAX_RETRIES=${LLM_MAX_RETRIES} \
     TIME_DIFF_THRESHOLD=${TIME_DIFF_THRESHOLD} \
     SYSTEM_INTERVAL=${SYSTEM_INTERVAL} \
-    POISON_RATE=${POISON_RATE}
-
+    POISON_RATE=${POISON_RATE} \
+    SPOOF_RATE=${SPOOF_RATE}
+    
 # Set the default entrypoint to bash
 ENTRYPOINT ["/bin/bash"]

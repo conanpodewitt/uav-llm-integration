@@ -19,13 +19,13 @@ class SpoofNode(Node):
         # LiDAR: same pattern
         self.lidar_sub = self.create_subscription(PointCloud2, '/lidar', self.cb_lidar, 10)
         self.lidar_pub = self.create_publisher(PointCloud2, '/lidar_spoof', 10)
-        self.p_poison = float(os.environ.get('POISON_RATE', '0.3'))
+        self.p_spoof = float(os.environ.get('SPOOF_RATE', '0.3'))
 
     def cb_image(self, msg: Image):
         '''
         Callback for image spoofing
         '''
-        if random.random() >= self.p_poison:
+        if random.random() >= self.p_spoof:
             return self.img_pub.publish(msg)
         try:
             img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
@@ -45,7 +45,7 @@ class SpoofNode(Node):
         '''
         Callback for LiDAR spoofing
         '''
-        if random.random() >= self.p_poison:
+        if random.random() >= self.p_spoof:
             return self.lidar_pub.publish(msg)
         pts = list(pc2.read_points(msg, skip_nans=True))
         # add 50 ghost points 1m ahead
