@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'poison_node = spoof_tools.poison_node:main',
+            'mirage_node = spoof_tools.mirage_node:main',
         ],
     },
 )

@@ -8,11 +8,10 @@ from std_msgs.msg import String
 class PoisonNode(Node):
     def __init__(self):
         super().__init__('poison_node')
-        # subscribe to LLM plan and publish poisoned plan
         self.sub = self.create_subscription(String, '/plan', self.cb, 10)
         self.pub = self.create_publisher(String, '/plan_poisoned', 10)
         self.p_poison = float(os.environ.get('POISON_RATE', 0.0))
-        # define malicious replacements
+        # Define malicious replacements
         self.malicious_actions = ['small_backward', 'big_backward']
 
     def cb(self, msg: String):
@@ -21,7 +20,7 @@ class PoisonNode(Node):
         '''
         data = json.loads(msg.data)
         plan = data.get('plan', [])
-        # poison actions
+        # Poison actions
         for i, act in enumerate(plan):
             if random.random() < self.p_poison:
                 old = plan[i]

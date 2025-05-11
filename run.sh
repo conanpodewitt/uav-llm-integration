@@ -78,6 +78,7 @@ docker build \
     --build-arg TIME_DIFF_THRESHOLD=${TIME_DIFF_THRESHOLD} \
     --build-arg SYSTEM_INTERVAL=${SYSTEM_INTERVAL} \
     --build-arg POISON_RATE=${POISON_RATE} \
+    --build-arg MIRAGE_RATE=${MIRAGE_RATE} \
     -t $IMAGE_NAME .
 
 ########################################
