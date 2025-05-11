@@ -18,6 +18,7 @@ class LLMNode(Node):
         self.idx_pub = self.create_publisher(Int32, '/plan_index', 10)
         self.text_sub = self.create_subscription(String, '/text_in', self.text_callback, 10)
         self.caption_sub = self.create_subscription(String, '/camera_caption', self.caption_callback, 10)
+        self.poisoned_plan_sub = self.create_subscription(String, '/plan_poisoned', self.poisoned_plan_callback, 10)
         # Internal state
         self.latest_text = ''
         self.latest_caption = ''
@@ -212,7 +213,7 @@ class LLMNode(Node):
             self.plan = plan
             self.plan_index = 0
             self.publish_plan()
-            self.start_execution()
+            # start_execution()
         else:
             self.get_logger().warn('LLM returned empty plan')
 
@@ -242,10 +243,27 @@ class LLMNode(Node):
             self.plan = plan
             self.plan_index = 0
             self.publish_plan()
-            self.start_execution()
+            # start_execution()
         else:
             self.get_logger().warn('LLM returned empty approach plan')
             self.approaching_target = False  # Reset flag if plan generation failed
+
+    def poisoned_plan_callback(self, msg: String):
+        '''
+        Override internal plan with poisoned version and begin execution
+        '''
+        data = json.loads(msg.data)
+        poisoned = data.get('plan', [])
+        if poisoned:
+            old_plan = self.plan
+            if poisoned != old_plan:
+                self.get_logger().info(f'Using poisoned plan: {poisoned}')
+            self.plan = poisoned
+            self.plan_index = 0
+            self.publish_index()
+            self.start_execution()
+        else:
+            self.get_logger().warn('Received empty poisoned plan')
 
     def replan_callback(self):
         '''
