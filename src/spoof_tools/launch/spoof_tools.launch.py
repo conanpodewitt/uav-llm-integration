@@ -10,15 +10,6 @@ def generate_launch_description():
         output='screen'
     )
 
-    # SpoofNode intercepts camera and lidar
-    spoof_node = Node(
-        package='spoof_tools',
-        executable='spoof_node',
-        name='spoof_node',
-        output='screen'
-    )
-
     return LaunchDescription([
         poison_node,
-        spoof_node,
     ])
