@@ -19,7 +19,7 @@ class SpoofNode(Node):
         # LiDAR: same pattern
         self.lidar_sub = self.create_subscription(PointCloud2, '/lidar', self.cb_lidar, 10)
         self.lidar_pub = self.create_publisher(PointCloud2, '/lidar_spoof', 10)
-        self.p_spoof = float(os.environ.get('SPOOF_RATE', '0.3'))
+        self.p_spoof = float(os.environ.get('SPOOF_RATE'))
 
     def cb_image(self, msg: Image):
         '''

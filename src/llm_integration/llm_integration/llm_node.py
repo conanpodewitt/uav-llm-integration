@@ -16,7 +16,7 @@ class LLMNode(Node):
         self.cmd_pub = self.create_publisher(Twist, '/llm_cmd', 10)
         self.plan_pub = self.create_publisher(String, '/plan', 10)
         self.idx_pub = self.create_publisher(Int32, '/plan_index', 10)
-        self.text_sub = self.create_subscription(String, '/text_in_poisoned', self.text_callback, 10)
+        self.text_sub = self.create_subscription(String, '/text_in', self.text_callback, 10)
         self.caption_sub = self.create_subscription(String, '/camera_caption', self.caption_callback, 10)
         # Internal state
         self.latest_text = ''
@@ -173,7 +173,7 @@ class LLMNode(Node):
                     significant_change = True
                 # Only interrupt if we're not already approaching or there's significant change
                 if not self.approaching_target or significant_change:
-                    self.get_logger().info(f'Target "{obj_label}" detected at {position}—interrupting current action')
+                    self.get_logger().info(f'Target "{obj_label}" detected at {position} - interrupting current action')
                     # Stop the current action
                     self.cmd_pub.publish(Twist())
                     # Cancel the execution timer

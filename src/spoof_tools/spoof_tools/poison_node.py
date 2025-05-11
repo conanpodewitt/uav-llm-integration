@@ -12,7 +12,7 @@ class PoisonNode(Node):
         self.sub = self.create_subscription(String, '/text_in', self.cb, 10)
         # publish back on /text_in
         self.pub = self.create_publisher(String, '/text_in_poisoned', 10)
-        self.p_poison = float(os.environ.get('POISON_RATE', '0.3'))
+        self.p_poison = float(os.environ.get('POISON_RATE'))
 
     def cb(self, msg: String):
         '''

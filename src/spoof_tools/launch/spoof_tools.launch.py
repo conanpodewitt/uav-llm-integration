@@ -7,7 +7,6 @@ def generate_launch_description():
         package='spoof_tools',
         executable='poison_node',
         name='poison_node',
-        parameters=[{'poison_rate': 0.3}],
         output='screen'
     )
 
