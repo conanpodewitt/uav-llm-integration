@@ -178,7 +178,7 @@ class UINode(Node):
         Send the command from the entry box to the LLM
         '''
         text = self.entry.get().strip()
-        # ignore placeholder
+        # Ignore placeholder
         if not text or text == 'Enter a command':
             return
         self.cmd_pub.publish(String(data=text))
