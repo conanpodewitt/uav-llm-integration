@@ -57,7 +57,7 @@
     <!-- Red Box -->
     <model name="box_red">
       <static>true</static>
-      <pose>10 -3 1 0 0 0</pose>
+      <pose>8 -3 1 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry>
@@ -84,7 +84,7 @@
     <!-- Blue Box -->
     <model name="box_blue">
       <static>true</static>
-      <pose>10 0 1 0 0 0</pose>
+      <pose>8 0 1 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry>
@@ -111,7 +111,7 @@
     <!-- Yellow Box -->
     <model name="box_yellow">
       <static>true</static>
-      <pose>10 3 1 0 0 0</pose>
+      <pose>8 3 1 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry>

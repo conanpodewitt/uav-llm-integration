@@ -67,6 +67,7 @@ class LLMNode(Node):
         self.system_interval = float(os.getenv('SYSTEM_INTERVAL'))
         self.system_prompt = self.load_system_prompt('uav-llm-integration/system_prompt.txt')
         self.time_diff_threshold = float(os.getenv('TIME_DIFF_THRESHOLD'))
+        self.llm_defence = int(os.getenv('LLM_DEFENCE', 0))
         # Timers
         self.plan_timer = self.create_timer(self.system_interval, self.replan_callback)
         self.exec_timer = None
@@ -255,9 +256,6 @@ class LLMNode(Node):
         data = json.loads(msg.data)
         poisoned = data.get('plan', [])
         if poisoned:
-            old_plan = self.plan
-            if poisoned != old_plan:
-                self.get_logger().info(f'Using poisoned plan: {poisoned}')
             self.plan = poisoned
             self.plan_index = 0
             self.publish_index()
@@ -306,8 +304,8 @@ class LLMNode(Node):
 
     def call_api(self, user_msg) -> list:
         '''
-        Call LLM and parse JSON plan, retry immediately on error
-        '''    
+        Call LLLM and parse JSON plan, retry immediately on error
+        '''
         messages = [{'role':'system','content':self.system_prompt}] if self.system_prompt else []
         messages.append({'role':'user','content':user_msg})
         body = {'model':self.model, 'messages':messages, 'temperature':self.temperature}
@@ -320,12 +318,24 @@ class LLMNode(Node):
                 match = self.json_pattern.search(content)
                 if not match:
                     self.get_logger().error(f'No JSON in response: {content}')
+                    if self.llm_defence == 1:
+                        self.get_logger().warn('Unparsable LLM response – triggering replan')
+                        self.replan_callback()
                     return []
                 data = json.loads(match.group(0))
-                return data.get('plan', []) if isinstance(data.get('plan', []), list) else []
+                # defence: if malicious flag set, replan immediately
+                if self.llm_defence == 1 and data.get('malicious'):
+                    self.get_logger().warn('Malicious plan detected – triggering replan')
+                    self.replan_callback()
+                    return []
+                plan = data.get('plan', [])
+                return plan if isinstance(plan, list) else []
             except Exception as e:
                 self.get_logger().error(f'API error (attempt {attempt+1}/{self.max_retries}): {e}')
                 if attempt == self.max_retries - 1:
+                    if self.llm_defence == 1:
+                        self.get_logger().warn('API failures – triggering replan')
+                        self.replan_callback()
                     return []
                 # retry immediately
         return []
