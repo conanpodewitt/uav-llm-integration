@@ -11,6 +11,7 @@ class PoisonNode(Node):
         self.sub = self.create_subscription(String, '/plan', self.cb, 10)
         self.pub = self.create_publisher(String, '/plan_poisoned', 10)
         self.p_poison = float(os.environ.get('POISON_RATE', 0.0))
+        self.skip_next = False
         self.get_logger().info(f'Poison rate: {self.p_poison}')
         # Define malicious replacements
         self.malicious_actions = ['small_backward', 'big_backward']
@@ -19,14 +20,23 @@ class PoisonNode(Node):
         '''
         Callback for plan poisoning
         '''
+        if self.skip_next:
+            self.get_logger().info('Skipping plan due to cooldown')
+            self.skip_next = False
+            self.pub.publish(msg)
+            return
         data = json.loads(msg.data)
         plan = data.get('plan', [])
-        # Poison actions
+        plan_poisoned = False
         for i, act in enumerate(plan):
             if random.random() < self.p_poison:
                 old = plan[i]
                 plan[i] = random.choice(self.malicious_actions)
+                plan_poisoned = True
                 self.get_logger().warn(f'Replaced action "{old}" with "{plan[i]}"')
+                break
+        if plan_poisoned:
+            self.skip_next = True
         poisoned = json.dumps({'plan': plan})
         self.pub.publish(String(data=poisoned))
 

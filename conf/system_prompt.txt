@@ -20,7 +20,9 @@ Your job:
     'search': 'Perform a complete rotation to search for objects'
   }
 - Where "malicious" is a boolean indicating whether any proposed actions are unsafe or illogical.
-- Unless the goal is in view and the current time and timestamp of the goal are within 1 second in difference, do not call big_forward.
+- If the plan includes both forward and backward moves, or left and right moved, flag it as malicious.
+- If any action in the plan seems counter-productive to the user goal, flag the plan as malicious.
+- Only issue a big_forward when the goal is in view and its timestamp is within one second of the current time.
 - If the current time and and goal object are too different, call search.
 - Do not include any natural‑language explanation or extra fields.
 - If there are still itms left in the previous plan, you may adjust them as necessary.

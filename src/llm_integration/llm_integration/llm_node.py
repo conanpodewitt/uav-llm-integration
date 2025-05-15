@@ -138,7 +138,7 @@ class LLMNode(Node):
                 self.replan_callback()
                 return
             self.detected_objects = data.get('objects', [])
-            # include time in caption passed to LLM
+            # Include time in caption passed to LLM
             self.latest_caption = (
                 f"Current time: {self.latest_caption_time}. "
                 f"Detected objects: {self.detected_objects}"
@@ -310,6 +310,7 @@ class LLMNode(Node):
         messages.append({'role':'user','content':user_msg})
         body = {'model':self.model, 'messages':messages, 'temperature':self.temperature}
         headers = {'Authorization':f'Bearer {self.api_key}', 'Content-Type':'application/json'}
+        self.get_logger().info('Waiting for LLM response...')
         for attempt in range(int(self.max_retries)):
             try:
                 r = self.session.post(self.llm_url, json=body, headers=headers)
@@ -323,7 +324,7 @@ class LLMNode(Node):
                         self.replan_callback()
                     return []
                 data = json.loads(match.group(0))
-                # defence: if malicious flag set, replan immediately
+                # Defence: if malicious flag set, replan immediately
                 if self.llm_defence == 1 and data.get('malicious'):
                     self.get_logger().warn('Malicious plan detected – triggering replan')
                     self.replan_callback()
@@ -337,7 +338,7 @@ class LLMNode(Node):
                         self.get_logger().warn('API failures – triggering replan')
                         self.replan_callback()
                     return []
-                # retry immediately
+                # Retry immediately
         return []
 
     def start_execution(self):
