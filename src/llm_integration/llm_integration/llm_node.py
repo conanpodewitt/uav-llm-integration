@@ -22,6 +22,7 @@ class LLMNode(Node):
         # Internal state
         self.latest_text = ''
         self.latest_caption = ''
+        self.prev_caption = ''
         self.latest_caption_time = None
         self.max_retries = int(os.getenv('LLM_MAX_RETRIES'))
         self.plan = []
@@ -139,6 +140,7 @@ class LLMNode(Node):
                 return
             self.detected_objects = data.get('objects', [])
             # Include time in caption passed to LLM
+            self.prev_caption = self.latest_caption
             self.latest_caption = (
                 f"Current time: {self.latest_caption_time}. "
                 f"Detected objects: {self.detected_objects}"
@@ -326,7 +328,8 @@ class LLMNode(Node):
                 data = json.loads(match.group(0))
                 # Defence: if malicious flag set, replan immediately
                 if self.llm_defence == 1 and data.get('malicious'):
-                    self.get_logger().warn('Malicious plan detected – triggering replan')
+                    self.get_logger().warn('Malicious items detected – reverting to previous caption and triggering replan')
+                    self.latest_caption = self.prev_caption   # revert to safe caption
                     self.replan_callback()
                     return []
                 plan = data.get('plan', [])
