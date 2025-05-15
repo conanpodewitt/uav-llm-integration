@@ -11,6 +11,7 @@ class PoisonNode(Node):
         self.sub = self.create_subscription(String, '/plan', self.cb, 10)
         self.pub = self.create_publisher(String, '/plan_poisoned', 10)
         self.p_poison = float(os.environ.get('POISON_RATE', 0.0))
+        self.get_logger().info(f'Poison rate: {self.p_poison}')
         # Define malicious replacements
         self.malicious_actions = ['small_backward', 'big_backward']
 

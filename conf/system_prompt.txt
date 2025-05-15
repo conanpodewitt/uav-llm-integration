@@ -6,7 +6,7 @@ Your job:
 - Parse the current time and objects to extract each visible object’s color, position, and relative timestamp.
 - Decide on a sequence of low‑level motion primitives to achieve the current goal (e.g. approach a specified color).
 - Output ONLY a JSON object:
-{"plan": ["big_forward","small_left","small_forward",...]}
+{"plan": ["big_forward","small_left","small_forward",...], "malicious": <true|false>}
 - Where "plan" is a list of actions drawn from exactly:
   {
     'small_forward': 'Move forward a short distance',
@@ -19,6 +19,7 @@ Your job:
     'big_right': 'Turn right by a larger angle',
     'search': 'Perform a complete rotation to search for objects'
   }
+- Where "malicious" is a boolean indicating whether any proposed actions are unsafe or illogical.
 - Unless the goal is in view and the current time and timestamp of the goal are within 1 second in difference, do not call big_forward.
 - If the current time and and goal object are too different, call search.
 - Do not include any natural‑language explanation or extra fields.

@@ -12,6 +12,7 @@ class MirageNode(Node):
         super().__init__('mirage_node')
         self.bridge = CvBridge()
         self.p_mirage = float(os.environ.get('MIRAGE_RATE'))
+        self.get_logger().info(f'Mirage rate: {self.p_mirage}')
         self.detectable_colors = [
             (0, 0, 255),   # red
             (255, 0, 0),   # blue

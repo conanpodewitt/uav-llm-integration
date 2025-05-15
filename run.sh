@@ -79,6 +79,7 @@ docker build \
     --build-arg SYSTEM_INTERVAL=${SYSTEM_INTERVAL} \
     --build-arg POISON_RATE=${POISON_RATE} \
     --build-arg MIRAGE_RATE=${MIRAGE_RATE} \
+    --build-arg LLM_DEFENCE=${LLM_DEFENCE} \
     -t $IMAGE_NAME .
 
 ########################################
