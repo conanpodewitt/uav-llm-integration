@@ -15,7 +15,7 @@ class UINode(Node):
     def __init__(self):
         super().__init__('ui_node')
         self.cmd_pub = self.create_publisher(String, '/text_in', 10)
-        self.plan_sub = self.create_subscription(String, '/plan', self.plan_callback, 10)
+        self.plan_sub = self.create_subscription(String, '/plan_poisoned', self.plan_callback, 10)
         self.index_sub = self.create_subscription(Int32, '/plan_index', self.index_callback, 10)
         self.mask_sub = self.create_subscription(Image, '/camera_masked', self.mask_callback, 10)
         self.memory_sub = self.create_subscription(String, '/camera_caption', self.memory_callback, 10)
@@ -178,7 +178,7 @@ class UINode(Node):
         Send the command from the entry box to the LLM
         '''
         text = self.entry.get().strip()
-        # ignore placeholder
+        # Ignore placeholder
         if not text or text == 'Enter a command':
             return
         self.cmd_pub.publish(String(data=text))

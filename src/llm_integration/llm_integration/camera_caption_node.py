@@ -14,7 +14,7 @@ class CameraCaptionNode(Node):
         super().__init__('camera_caption_node')
         self.publisher_ = self.create_publisher(String, '/camera_caption', 10)
         self.mask_pub_ = self.create_publisher(Image, '/camera_masked', 10)
-        self.subscription = self.create_subscription(Image, '/camera', self.image_callback, 10)
+        self.subscription = self.create_subscription(Image, '/camera_mirage', self.image_callback, 10)
         # Configuration
         self.area_threshold = int(os.getenv('AREA_THRESHOLD'))  # min blob area
         self.match_tol = float(os.getenv('AREA_MATCH_TOL'))     # relative area tolerance

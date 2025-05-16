@@ -1,75 +1,106 @@
 # uav-llm-integration
 
-**Conan Dewitt (22877792) [GitHub](https://github.com/conanpodewitt)**
+**Conan Dewitt (22877792) - [GitHub](https://github.com/conanpodewitt)**
 
-This project integrates unmanned autonomous vehicles (UAVs) with large language model (LLM) capabilities, enhancing operator-machine interaction through intelligent decision-making and real-time data analysis. The repository contains a ROS 2 project that can be run in either pure simulation mode or live demonstration mode on a Pioneer 3AT, providing a robust framework for UAV control and experimentation.
+A ROS 2‑based framework integrating OpenAI’s LLM for high‑level mission planning with both simulated (Gazebo) and real Pioneer 3‑AT hardware. The system consists of five packages, with three of them being the focus of this project:
 
-## Installation
+- **llm_integration**
+    - Interacts with the OpenAI API to generate and execute motion plans
+    - Includes:
+        - [`llm_node`](src/llm_integration/llm_integration/llm_node.py) (core planning & execution)
+        - [`ui_node`](src/llm_integration/llm_integration/ui_node.py) (text CLI/GUI input)
+        - [`camera_caption_node`](src/llm_integration/llm_integration/camera_caption_node.py) (image -> caption for context)
 
-## Getting Started
+- **deadman_safety**
+    - Ensures collision avoidance and a “deadman” joystick override
+    - Includes:
+        - [`custom_joy_node`](src/deadman_safety/deadman_safety/custom_joy_node.py) (reads controller via evdev -> publishes JSON)
+        - [`deadman_node`](src/deadman_safety/deadman_safety/deadman_node.py) (merges LLM commands, joystick, LIDAR safety)
 
-### Running the Project
+- **spoof_tools**
+    - Provides tools for testing system resilience against sensor spoofing and plan poisoning
+    - Includes:
+        - [`poison_node`](src/spoof_tools/spoof_tools/poison_node.py) (intercepts `/text_in` commands for testing plan injection)
+        - [`mirage_node`](src/spoof_tools/spoof_tools/mirage_node.py) (intercepts `/camera` feed for camera spoofing tests)
 
-Ensure that Docker is installed and a DualShock 4 controller is connected (wired or wireless) before using the run script. An OpenAI API key is also required for launch and should be placed within an `.env` file under the `LLM_API_KEY=` variable.
+## Prerequisites
 
-> **Note:** This project has only been tested on Linux systems (as of 13/03/2025) and requires a moderately powerful system to run.
+- Linux machine (required by [`init.sh`](init.sh)/[`run.sh`](run.sh)) - Other platforms not supported
+- Docker
+- USB serial (`/dev/ttyUSB0`), USB video (`/dev/video0`), and ethernet LiDAR (SICK TIM-7) when using "actual"
+- Joystick (`/dev/input/js0`) for both simulation and "actual"
 
-Use the run script to build and launch the container — this will take some time on the first run:
+## Environment Configuration
+
+1. Copy or create a file named `.env` in the project root containing your OpenAI key: `LLM_API_KEY=sk-<your_openai_api_key>`
+2. In [`conf/.env.conf`](conf/.env.conf) define system parameters
+3. [`conf/system_prompt.txt`](conf/system_prompt.txt) holds your system‑level prompt for the LLM
+
+## Initial Hardware Setup
+
+Before launching, grant permissions and configure interfaces. Run **with** `sudo`:
+
+```bash
+sudo ./init.sh
+```
+
+You can also go through this file and run these commnads manually if you wish.
+
+## Build & Launch
+
+From project root, simply run:
 
 ```bash
 ./run.sh
 ```
 
-If you don't have a DualShock 4 controller, you can simply disable the check by commenting out lines 31-35 in the script (as of 02/04/2025). Note that while this change prevents teleoperation on a Pioneer 3AT, you can still control the simulated robot via Gazebo.
+What it does:
+1. Verifies Linux host, `.env` & [`conf/.env.conf`](conf/.env.conf) exist
+2. Builds a Docker image `uav-llm-integration` with your parameters
+3. Detects `/dev/ttyUSB0` & `/dev/video0` - if present, runs hardware‑enabled container; otherwise sim‑only
+4. Mounts X11 for RViz and GUI, exposes devices as needed
 
-### Simulation
+## Choosing Simulation vs Hardware
 
-Unless you have access to a Pioneer 3AT UAV, it is assumed that you will be running this project exclusively in simulation mode. The simulation can be started with:
+Once inside the container (or on your host if you source ROS 2):
 
-```bash
-ros2 launch master_launch sim.launch.py
-```
+- **Simulation**
+    ```bash
+    ros2 launch master_launch sim.launch.py
+    ```
+    - Brings up Gazebo, ros_gz_bridge, ..., rest of the system stack
 
-Pressing the up arrow (`↑`) right after launch will populate the terminal with a partially completed launch command.
+- **Actual Hardware**
+    ```bash
+    ros2 launch master_launch actual.launch.py
+    ```  
+    - Starts ARIA driver, LiDAR, ..., rest of the system stack
 
-### Pioneer 3AT
+## Workflow Overview
 
-If you have access to a Pioneer 3AT, you can launch the project on the actual hardware using:
+1. **User Input** ([`ui_node`](src/llm_integration/llm_integration/ui_node.py)) -> `/text_in` topic
+2. **LLM Plan Generation** ([`llm_node`](src/llm_integration/llm_integration/llm_node.py)) -> `/llm_cmd` & `/plan` topics
+3. **Safety & Joystick Merge** ([`deadman_node`](src/deadman_safety/deadman_safety/deadman_node.py)) -> verification, then `/cmd_vel` topic
+4. **Execution**
+    - Sim: Gazebo <-> `/cmd_vel` via ros_gz_bridge
+    - Real: `ariaNode` -> serial commands to Pioneer 3‑AT
 
-```bash
-ros2 launch master_launch actual.launch.py
-```
+## Project Structure
 
-This will start the system on the real Pioneer instead of in simulation.
-
-### Known Issues
-
-If you experience communication issues between the Docker container and connected hardware, check the [Useful Commands](#useful-commands) section for permission passthroughs.
-- On the initial simulation launch following a fresh build, Gazebo may not render correctly — simply restart the container to resolve the issue.
-
-## Useful Commands
-
-### Grant Permission for USB Serial Communication
-```bash
-sudo chmod 666 /dev/ttyUSB0
-```
-
-### Assign an IP Address to the LiDAR
-```bash
-sudo ip addr add 192.168.0.100/24 dev enp89s0
-```
-
-### Allow Webcam Communication with the Container
-```bash
-sudo chmod 666 /dev/video0
-```
-
-### Check Which Event the DualShock 4 Controller Publishes To
-```bash
-sudo evtest
-```
-
-### Enable Event Access for the DualShock 4 Controller
-```bash
-sudo chmod 666 /dev/input/event*
+```text
+.
+├── conf/
+│   ├── .env.conf            # System parameters
+│   └── system_prompt.txt    # LLM system prompt
+├── .env                     # LLM_API_KEY
+├── Dockerfile               # Builds system container
+├── init.sh                  # Hardware permission script (run with sudo)
+├── run.sh                   # Build & launch script
+└── src/
+    ├── llm_integration/     # LLM + UI + caption nodes
+    ├── deadman_safety/      # Safety & custom joy nodes
+    ├── uav_sim/             # Gazebo world + bridge
+    ├── uav_actual/          # Hardware drivers
+    ├── spoof_tools/         # Plan poisoning and camera spoofing tools
+    └── master_launch/       # Combined sim and actual launch files
 ```

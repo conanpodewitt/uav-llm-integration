@@ -77,6 +77,9 @@ docker build \
     --build-arg LLM_MAX_RETRIES=${LLM_MAX_RETRIES} \
     --build-arg TIME_DIFF_THRESHOLD=${TIME_DIFF_THRESHOLD} \
     --build-arg SYSTEM_INTERVAL=${SYSTEM_INTERVAL} \
+    --build-arg POISON_RATE=${POISON_RATE} \
+    --build-arg MIRAGE_RATE=${MIRAGE_RATE} \
+    --build-arg LLM_DEFENCE=${LLM_DEFENCE} \
     -t $IMAGE_NAME .
 
 ########################################

@@ -17,8 +17,13 @@ def generate_launch_description():
     deadman_safety_share = get_package_share_directory('deadman_safety')
     deadman_safety_launch = os.path.join(deadman_safety_share, 'launch', 'deadman_safety.launch.py')
     
+    # Locate spoof_tools launch file
+    spoof_tools_share = get_package_share_directory('spoof_tools')
+    spoof_tools_launch = os.path.join(spoof_tools_share, 'launch', 'spoof_tools.launch.py')
+
     return LaunchDescription([
         IncludeLaunchDescription(PythonLaunchDescriptionSource(uav_sim_launch)),
         IncludeLaunchDescription(PythonLaunchDescriptionSource(llm_integration_launch)),
         IncludeLaunchDescription(PythonLaunchDescriptionSource(deadman_safety_launch)),
+        IncludeLaunchDescription(PythonLaunchDescriptionSource(spoof_tools_launch)),
     ])

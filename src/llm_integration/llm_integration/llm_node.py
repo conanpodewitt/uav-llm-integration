@@ -9,6 +9,8 @@ from std_msgs.msg import String, Int32
 from geometry_msgs.msg import Twist
 import requests
 import numpy as np
+import time
+import csv
 
 class LLMNode(Node):
     def __init__(self):
@@ -18,9 +20,11 @@ class LLMNode(Node):
         self.idx_pub = self.create_publisher(Int32, '/plan_index', 10)
         self.text_sub = self.create_subscription(String, '/text_in', self.text_callback, 10)
         self.caption_sub = self.create_subscription(String, '/camera_caption', self.caption_callback, 10)
+        self.poisoned_plan_sub = self.create_subscription(String, '/plan_poisoned', self.poisoned_plan_callback, 10)
         # Internal state
         self.latest_text = ''
         self.latest_caption = ''
+        self.prev_caption = ''
         self.latest_caption_time = None
         self.max_retries = int(os.getenv('LLM_MAX_RETRIES'))
         self.plan = []
@@ -66,11 +70,16 @@ class LLMNode(Node):
         self.system_interval = float(os.getenv('SYSTEM_INTERVAL'))
         self.system_prompt = self.load_system_prompt('uav-llm-integration/system_prompt.txt')
         self.time_diff_threshold = float(os.getenv('TIME_DIFF_THRESHOLD'))
+        self.llm_defence = int(os.getenv('LLM_DEFENCE', 0))
         # Timers
         self.plan_timer = self.create_timer(self.system_interval, self.replan_callback)
         self.exec_timer = None
         self.session = requests.Session()
         self.cooldown_timer = self.create_timer(0.1, self.update_cooldown)
+        # Metrics
+        self.step_count = 0
+        self.response_times = []
+        self.max_steps = int(os.getenv('MAX_STEPS', '20'))
 
     def load_system_prompt(self, filename):
         '''
@@ -136,7 +145,8 @@ class LLMNode(Node):
                 self.replan_callback()
                 return
             self.detected_objects = data.get('objects', [])
-            # include time in caption passed to LLM
+            # Include time in caption passed to LLM
+            self.prev_caption = self.latest_caption
             self.latest_caption = (
                 f"Current time: {self.latest_caption_time}. "
                 f"Detected objects: {self.detected_objects}"
@@ -173,7 +183,7 @@ class LLMNode(Node):
                     significant_change = True
                 # Only interrupt if we're not already approaching or there's significant change
                 if not self.approaching_target or significant_change:
-                    self.get_logger().info(f'Target "{obj_label}" detected at {position}—interrupting current action')
+                    self.get_logger().info(f'Target "{obj_label}" detected at {position} - interrupting current action')
                     # Stop the current action
                     self.cmd_pub.publish(Twist())
                     # Cancel the execution timer
@@ -212,7 +222,7 @@ class LLMNode(Node):
             self.plan = plan
             self.plan_index = 0
             self.publish_plan()
-            self.start_execution()
+            # start_execution()
         else:
             self.get_logger().warn('LLM returned empty plan')
 
@@ -242,10 +252,24 @@ class LLMNode(Node):
             self.plan = plan
             self.plan_index = 0
             self.publish_plan()
-            self.start_execution()
+            # start_execution()
         else:
             self.get_logger().warn('LLM returned empty approach plan')
             self.approaching_target = False  # Reset flag if plan generation failed
+
+    def poisoned_plan_callback(self, msg: String):
+        '''
+        Override internal plan with poisoned version and begin execution
+        '''
+        data = json.loads(msg.data)
+        poisoned = data.get('plan', [])
+        if poisoned:
+            self.plan = poisoned
+            self.plan_index = 0
+            self.publish_index()
+            self.start_execution()
+        else:
+            self.get_logger().warn('Received empty poisoned plan')
 
     def replan_callback(self):
         '''
@@ -288,28 +312,44 @@ class LLMNode(Node):
 
     def call_api(self, user_msg) -> list:
         '''
-        Call LLM and parse JSON plan, retry immediately on error
-        '''    
+        Call LLLM and parse JSON plan, retry immediately on error
+        '''
         messages = [{'role':'system','content':self.system_prompt}] if self.system_prompt else []
         messages.append({'role':'user','content':user_msg})
         body = {'model':self.model, 'messages':messages, 'temperature':self.temperature}
         headers = {'Authorization':f'Bearer {self.api_key}', 'Content-Type':'application/json'}
+        self.get_logger().info('Waiting for LLM response...')
         for attempt in range(int(self.max_retries)):
+            start = time.time()
             try:
                 r = self.session.post(self.llm_url, json=body, headers=headers)
                 r.raise_for_status()
                 content = r.json()['choices'][0]['message']['content']
+                self.response_times.append(time.time() - start)
                 match = self.json_pattern.search(content)
                 if not match:
                     self.get_logger().error(f'No JSON in response: {content}')
+                    if self.llm_defence == 1:
+                        self.get_logger().warn('Unparsable LLM response – triggering replan')
+                        self.replan_callback()
                     return []
                 data = json.loads(match.group(0))
-                return data.get('plan', []) if isinstance(data.get('plan', []), list) else []
+                # Defence: if malicious flag set, replan immediately
+                if self.llm_defence == 1 and data.get('malicious'):
+                    self.get_logger().warn('Malicious items detected – reverting to previous caption and triggering replan')
+                    self.latest_caption = self.prev_caption   # revert to safe caption
+                    self.replan_callback()
+                    return []
+                plan = data.get('plan', [])
+                return plan if isinstance(plan, list) else []
             except Exception as e:
                 self.get_logger().error(f'API error (attempt {attempt+1}/{self.max_retries}): {e}')
                 if attempt == self.max_retries - 1:
+                    if self.llm_defence == 1:
+                        self.get_logger().warn('API failures – triggering replan')
+                        self.replan_callback()
                     return []
-                # retry immediately
+                # Retry immediately
         return []
 
     def start_execution(self):
@@ -339,6 +379,7 @@ class LLMNode(Node):
             angular=type(Twist().angular)(z=params['angular'])
         )
         self.cmd_pub.publish(twist)
+        self.step_count += 1
         # Use the explicit duration parameter if available, otherwise calculate it
         if 'duration' in params:
             duration = params['duration']
@@ -372,6 +413,17 @@ class LLMNode(Node):
             self.exec_timer.cancel()
         if self.plan_timer:
             self.plan_timer.cancel()
+        # Write metrics
+        exploration_rate = min(1.0, self.step_count / self.max_steps)
+        avg_resp = (sum(self.response_times) / len(self.response_times)) if self.response_times else 0.0
+        try:
+            with open('metrics.csv', 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['exploration_rate','avg_response_time'])
+                writer.writerow([exploration_rate, avg_resp])
+            self.get_logger().info(f'Wrote metrics: exploration_rate={exploration_rate:.2f}, avg_response_time={avg_resp:.3f}s')
+        except Exception as e:
+            self.get_logger().error(f'Failed to write metrics.csv: {e}')
         self.destroy_node()
 
 def main(args=None):
