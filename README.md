@@ -2,20 +2,26 @@
 
 **Conan Dewitt (22877792) - [GitHub](https://github.com/conanpodewitt)**
 
-A ROS 2‑based framework integrating OpenAI’s LLM for high‑level mission planning with both simulated (Gazebo) and real Pioneer 3‑AT hardware. The system consists of five packages, with two of them being the focus of this project:
+A ROS 2‑based framework integrating OpenAI’s LLM for high‑level mission planning with both simulated (Gazebo) and real Pioneer 3‑AT hardware. The system consists of five packages, with three of them being the focus of this project:
 
 - **llm_integration**
     - Interacts with the OpenAI API to generate and execute motion plans
     - Includes:
         - [`llm_node`](src/llm_integration/llm_integration/llm_node.py) (core planning & execution)
         - [`ui_node`](src/llm_integration/llm_integration/ui_node.py) (text CLI/GUI input)
-        - [`camera_caption_node`](src/llm_integration/llm_integration/camera_caption_node.py) (image → caption for context)
+        - [`camera_caption_node`](src/llm_integration/llm_integration/camera_caption_node.py) (image -> caption for context)
 
 - **deadman_safety**
     - Ensures collision avoidance and a “deadman” joystick override
     - Includes:
-        - [`custom_joy_node`](src/deadman_safety/deadman_safety/custom_joy_node.py) (reads controller via evdev → publishes JSON)
+        - [`custom_joy_node`](src/deadman_safety/deadman_safety/custom_joy_node.py) (reads controller via evdev -> publishes JSON)
         - [`deadman_node`](src/deadman_safety/deadman_safety/deadman_node.py) (merges LLM commands, joystick, LIDAR safety)
+
+- **spoof_tools**
+    - Provides tools for testing system resilience against sensor spoofing and plan poisoning
+    - Includes:
+        - [`poison_node`](src/spoof_tools/spoof_tools/poison_node.py) (intercepts `/text_in` commands for testing plan injection)
+        - [`mirage_node`](src/spoof_tools/spoof_tools/mirage_node.py) (intercepts `/camera` feed for camera spoofing tests)
 
 ## Prerequisites
 
@@ -32,7 +38,7 @@ A ROS 2‑based framework integrating OpenAI’s LLM for high‑level mission p
 
 ## Initial Hardware Setup
 
-Before launching, grant permissions and configure interfaces. Run **with** `sudo`:
+Before launching, grant permissions and configure interfaces. Run **with** `sudo`:
 
 ```bash
 sudo ./init.sh
@@ -56,7 +62,7 @@ What it does:
 
 ## Choosing Simulation vs Hardware
 
-Once inside the container (or on your host if you source ROS 2):
+Once inside the container (or on your host if you source ROS 2):
 
 - **Simulation**
     ```bash
@@ -72,12 +78,12 @@ Once inside the container (or on your host if you source ROS 2):
 
 ## Workflow Overview
 
-1. **User Input** ([`ui_node`](src/llm_integration/llm_integration/ui_node.py)) → `/text_in` topic
-2. **LLM Plan Generation** ([`llm_node`](src/llm_integration/llm_integration/llm_node.py)) → `/llm_cmd` & `/plan` topics
-3. **Safety & Joystick Merge** ([`deadman_node`](src/deadman_safety/deadman_safety/deadman_node.py)) → verification, then `/cmd_vel` topic
+1. **User Input** ([`ui_node`](src/llm_integration/llm_integration/ui_node.py)) -> `/text_in` topic
+2. **LLM Plan Generation** ([`llm_node`](src/llm_integration/llm_integration/llm_node.py)) -> `/llm_cmd` & `/plan` topics
+3. **Safety & Joystick Merge** ([`deadman_node`](src/deadman_safety/deadman_safety/deadman_node.py)) -> verification, then `/cmd_vel` topic
 4. **Execution**
-    - Sim: Gazebo ↔ `/cmd_vel` via ros_gz_bridge
-    - Real: `ariaNode` → serial commands to Pioneer 3‑AT
+    - Sim: Gazebo <-> `/cmd_vel` via ros_gz_bridge
+    - Real: `ariaNode` -> serial commands to Pioneer 3‑AT
 
 ## Project Structure
 
@@ -95,5 +101,6 @@ Once inside the container (or on your host if you source ROS 2):
     ├── deadman_safety/      # Safety & custom joy nodes
     ├── uav_sim/             # Gazebo world + bridge
     ├── uav_actual/          # Hardware drivers
+    ├── spoof_tools/         # Plan poisoning and camera spoofing tools
     └── master_launch/       # Combined sim and actual launch files
 ```
